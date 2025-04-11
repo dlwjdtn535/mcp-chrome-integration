@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>MCP Client</title>
+  <style>
+    body {
+      width: 300px;
+      padding: 10px;
+      font-family: Arial, sans-serif;
+    }
+    .status {
+      padding: 5px;
+      margin-bottom: 10px;
+      border-radius: 4px;
+    }
+    .connected {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .disconnected {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+    button {
+      width: 100%;
+      padding: 8px;
+      margin-top: 5px;
+      cursor: pointer;
+    }
+    input {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 10px;
+      box-sizing: border-box;
+    }
+  </style>
+</head>
+<body>
+  <h2>MCP Client</h2>
+  <div id="connectionStatus" class="status disconnected">Disconnected</div>
+  
+  <div>
+    <label for="serverUrl">Server URL:</label>
+    <input type="text" id="serverUrl" value="ws://localhost:8080" />
+  </div>
+  
+  <button id="connectBtn">Connect</button>
+  <button id="disconnectBtn" disabled>Disconnect</button>
+  
+  <div style="margin-top: 15px;">
+    <h3>Status Log</h3>
+    <div id="logContainer" style="max-height: 150px; overflow-y: auto; border: 1px solid #ccc; padding: 5px;">
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>

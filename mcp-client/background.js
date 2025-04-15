@@ -23,17 +23,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .then(() => sendResponse({ success: true }))
         .catch(error => sendResponse({ success: false, error: error.message }));
       return true; // Keep the message channel open for async response
-      
+
     case 'disconnect':
       disconnectFromServer()
         .then(() => sendResponse({ success: true }))
         .catch(error => sendResponse({ success: false, error: error.message }));
       return true;
-      
+
     case 'checkConnection':
       sendResponse({ isConnected: isConnected });
       return false;
-      
+
     case 'executeCommand':
       handleServerCommand(message.command)
         .then(result => sendResponse({ success: true, result }))
@@ -48,10 +48,10 @@ function connectToServer(serverUrl) {
     if (isConnected) {
       disconnectFromServer();
     }
-    
+
     try {
       socket = new WebSocket(serverUrl);
-      
+
       socket.onopen = () => {
         isConnected = true;
         reconnectAttempts = 0;
@@ -59,12 +59,12 @@ function connectToServer(serverUrl) {
         console.log('Connected to server');
         resolve();
       };
-      
+
       socket.onclose = (event) => {
         isConnected = false;
         socket = null;
         console.log('Disconnected:', event.reason || 'Connection closed');
-        
+
         // Try to reconnect if not manually disconnected
         if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
           reconnectAttempts++;
@@ -77,12 +77,12 @@ function connectToServer(serverUrl) {
           }, RECONNECT_INTERVAL);
         }
       };
-      
+
       socket.onerror = (error) => {
         console.error('WebSocket error:', error);
         reject(new Error('WebSocket connection error'));
       };
-      
+
       socket.onmessage = (event) => {
         handleServerMessage(event.data);
       };
@@ -115,7 +115,7 @@ function handleServerMessage(data) {
   try {
     const message = JSON.parse(data);
     console.log('Received message:', message);
-    
+
     if (message.type === 'command') {
       handleServerCommand(message.data).then(result => {
         // Send command result back to server
@@ -137,21 +137,30 @@ async function handleServerCommand(command) {
   try {
     const tab = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab[0]) return { success: false, message: 'No active tab found' };
-    
+
     // Skip if tab URL is restricted
-    if (!tab[0].url || tab[0].url.startsWith('chrome://') || 
-        tab[0].url.startsWith('edge://') || tab[0].url.startsWith('about:') || 
+    if (!tab[0].url || tab[0].url.startsWith('chrome://') ||
+        tab[0].url.startsWith('edge://') || tab[0].url.startsWith('about:') ||
         tab[0].url.startsWith('chrome-extension://')) {
       return { success: false, message: 'Cannot execute commands in this page' };
     }
 
-    const result = await chrome.scripting.executeScript({
-      target: { tabId: tab[0].id },
-      func: executeCommand,
-      args: [command]
-    });
+    chrome.tabs.sendMessage(
+        tabs[0].id,
+        {
+          action: "executeComplexFunction",
+          param1: 'Good',
+        },
+        (response) => {
+          if (response.success) {
+            resolve(response.data);
+          } else {
+            reject(new Error(response.error));
+          }
+        }
+    );
 
-    return result[0].result;
+    return { success: true };
   } catch (error) {
     return { success: false, message: error.message };
   }
@@ -164,14 +173,14 @@ function executeCommand(command) {
       if (!selector) {
         throw new Error('Selector is required. Usage: click-element [selector]');
       }
-      
+
       let element = document.querySelector(selector);
       if (!element) {
         // Try finding by text content
         const elements = Array.from(document.getElementsByTagName('*'));
-        element = elements.find(el => 
+        element = elements.find(el =>
           el.textContent?.trim().toLowerCase() === selector.toLowerCase() &&
-          (el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'INPUT' || 
+          (el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'INPUT' ||
            el.role === 'button' || el.getAttribute('onclick'))
         );
       }
@@ -191,14 +200,14 @@ function executeCommand(command) {
       let element = document.querySelector(selector);
       if (!element) {
         // Try finding by placeholder
-        element = Array.from(document.getElementsByTagName('input')).find(el => 
+        element = Array.from(document.getElementsByTagName('input')).find(el =>
           el.placeholder?.toLowerCase().includes(selector.toLowerCase())
         );
 
         if (!element) {
           // Try finding by label
           const labels = Array.from(document.getElementsByTagName('label'));
-          const label = labels.find(l => 
+          const label = labels.find(l =>
             l.textContent?.toLowerCase().includes(selector.toLowerCase())
           );
           if (label && label.htmlFor) {
@@ -211,13 +220,13 @@ function executeCommand(command) {
         throw new Error(`No input element found with selector: ${selector}`);
       }
 
-      if (!['INPUT', 'TEXTAREA'].includes(element.tagName) && 
+      if (!['INPUT', 'TEXTAREA'].includes(element.tagName) &&
           !element.isContentEditable) {
         throw new Error(`Element ${selector} is not an input field`);
       }
 
       element.focus();
-      
+
       if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
         element.value = text;
         element.dispatchEvent(new Event('input', { bubbles: true }));
@@ -237,8 +246,8 @@ function executeCommand(command) {
       const result = commands[name](...(args || []));
       return { success: true, result: result };
     } else {
-      return { 
-        success: false, 
+      return {
+        success: false,
         error: `Unknown command: ${name}. Available commands: ${Object.keys(commands).join(', ')}`
       };
     }

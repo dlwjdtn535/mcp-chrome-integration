@@ -3,15 +3,20 @@
 // Listen for commands from the background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('Content script received message:', message);
-  
-  if (message.type === 'executeContentCommand') {
-    handleContentCommand(message.command)
-      .then(result => sendResponse({ success: true, result }))
-      .catch(error => sendResponse({ success: false, error: error.message }));
+
+  // if (message.type === 'some') {
+    doSomethingInPage();
     return true; // Keep channel open for async response
-  }
-  
-  return false;
+  // }
+
+  // if (message.type === 'executeContentCommand') {
+  //   handleContentCommand(message.command)
+  //     .then(result => sendResponse({ success: true, result }))
+  //     .catch(error => sendResponse({ success: false, error: error.message }));
+  //   return true; // Keep channel open for async response
+  // }
+  //
+  // return false;
 });
 
 // Function to handle commands that need to be executed in the page context
@@ -279,3 +284,9 @@ chrome.runtime.sendMessage({
   type: 'contentScriptLoaded',
   url: window.location.href
 });
+
+function doSomethingInPage() {
+  console.log("페이지에서 실행되는 함수!");
+  alert('test');
+  return "함수 실행 결과";
+}

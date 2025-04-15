@@ -2,6 +2,7 @@
 <html>
 <head>
   <title>MCP Client</title>
+  <meta http-equiv="Content-Security-Policy" content="script-src 'self' unsafe-eval;">
   <style>
     body {
       width: 300px;
@@ -27,11 +28,35 @@
       margin-top: 5px;
       cursor: pointer;
     }
-    input {
+    input, textarea {
       width: 100%;
       padding: 8px;
       margin-bottom: 10px;
       box-sizing: border-box;
+    }
+    textarea {
+      height: 100px;
+      font-family: monospace;
+      resize: vertical;
+    }
+    .commands {
+      margin: 10px 0;
+      padding: 8px;
+      background-color: #f8f9fa;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .commands code {
+      display: block;
+      margin: 4px 0;
+      color: #0366d6;
+    }
+    .command-desc {
+      color: #666;
+      margin-left: 10px;
+      font-size: 11px;
+      display: block;
+      margin-bottom: 8px;
     }
   </style>
 </head>
@@ -47,6 +72,30 @@
   <button id="connectBtn">Connect</button>
   <button id="disconnectBtn" disabled>Disconnect</button>
   
+  <div style="margin-top: 15px;">
+    <h3>JavaScript Executor</h3>
+    <div class="commands">
+      Available commands:
+      <code>change-background</code>
+      <code>count-links</code>
+      <code>get-title</code>
+      <code>get-url</code>
+      <code>scroll-to-bottom</code>
+      <code>scroll-to-top</code>
+      <code>get-html</code>
+      <code>navigate-to [url]</code>
+      <span class="command-desc">Example: navigate-to https://www.google.com</span>
+      <code>click-element [selector]</code>
+      <span class="command-desc">Example: click-element #submit-button</span>
+      <span class="command-desc">Or: click-element Submit (finds by text)</span>
+      <code>run-script [JavaScript code]</code>
+      <span class="command-desc">Example: run-script document.querySelector('.menu').style.display = 'none';</span>
+      <span class="command-desc">Example: run-script return Array.from(document.links).map(a => a.href);</span>
+    </div>
+    <textarea id="jsCode" placeholder="Enter a command from the list above"></textarea>
+    <button id="executeBtn">Execute Command</button>
+  </div>
+
   <div style="margin-top: 15px;">
     <h3>Status Log</h3>
     <div id="logContainer" style="max-height: 150px; overflow-y: auto; border: 1px solid #ccc; padding: 5px;">

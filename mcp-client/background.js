@@ -8,8 +8,8 @@ const RECONNECT_INTERVAL = 5000; // 5 seconds
 
 // Initialize connection from saved settings
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.get(['serverUrl', 'autoConnect'], (result) => {
-    if (result.autoConnect && result.serverUrl) {
+  chrome.storage.local.get(['serverUrl'], (result) => {
+    if (result.serverUrl) {
       connectToServer(result.serverUrl);
     }
   });
@@ -56,17 +56,14 @@ function connectToServer(serverUrl) {
         isConnected = true;
         reconnectAttempts = 0;
         clearTimeout(reconnectTimer);
-        
-        // Notify all open popup views
-        broadcastConnectionUpdate(true, 'Connected to server');
+        console.log('Connected to server');
         resolve();
       };
       
       socket.onclose = (event) => {
         isConnected = false;
         socket = null;
-        
-        broadcastConnectionUpdate(false, `Disconnected: ${event.reason || 'Connection closed'}`);
+        console.log('Disconnected:', event.reason || 'Connection closed');
         
         // Try to reconnect if not manually disconnected
         if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
@@ -82,7 +79,7 @@ function connectToServer(serverUrl) {
       };
       
       socket.onerror = (error) => {
-        broadcastConnectionUpdate(false, `WebSocket error: ${error.message || 'Unknown error'}`);
+        console.error('WebSocket error:', error);
         reject(new Error('WebSocket connection error'));
       };
       
@@ -100,16 +97,11 @@ function disconnectFromServer() {
   return new Promise((resolve, reject) => {
     try {
       if (socket) {
-        // Clear reconnect attempts
         reconnectAttempts = MAX_RECONNECT_ATTEMPTS;
         clearTimeout(reconnectTimer);
-        
-        // Close connection
         socket.close(1000, 'Manually disconnected');
         isConnected = false;
         socket = null;
-        
-        broadcastConnectionUpdate(false, 'Manually disconnected from server');
       }
       resolve();
     } catch (error) {
@@ -122,151 +114,135 @@ function disconnectFromServer() {
 function handleServerMessage(data) {
   try {
     const message = JSON.parse(data);
+    console.log('Received message:', message);
     
-    // Log received message
-    console.log('Received message from server:', message);
-    
-    // Execute commands based on message type
-    switch (message.type) {
-      case 'command':
-        handleServerCommand(message.data);
-        break;
-        
-      case 'ping':
-        // Respond to ping with pong
+    if (message.type === 'command') {
+      handleServerCommand(message.data).then(result => {
+        // Send command result back to server
         if (socket && isConnected) {
-          socket.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+          socket.send(JSON.stringify({
+            type: 'command_result',
+            data: result
+          }));
         }
-        break;
-        
-      default:
-        console.log('Unknown message type:', message.type);
+      });
     }
   } catch (error) {
-    console.error('Error processing server message:', error);
+    console.error('Error processing message:', error);
   }
 }
 
 // Handle commands from the server
 async function handleServerCommand(command) {
-  // Based on command type, execute different browser actions
   try {
-    switch (command.action) {
-      case 'navigate':
-        // Navigate to URL
-        if (command.url) {
-          const tab = await getCurrentTab();
-          await chrome.tabs.update(tab.id, { url: command.url });
-          return { success: true, message: `Navigated to ${command.url}` };
+    const tab = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab[0]) return { success: false, message: 'No active tab found' };
+    
+    // Skip if tab URL is restricted
+    if (!tab[0].url || tab[0].url.startsWith('chrome://') || 
+        tab[0].url.startsWith('edge://') || tab[0].url.startsWith('about:') || 
+        tab[0].url.startsWith('chrome-extension://')) {
+      return { success: false, message: 'Cannot execute commands in this page' };
+    }
+
+    const result = await chrome.scripting.executeScript({
+      target: { tabId: tab[0].id },
+      func: executeCommand,
+      args: [command]
+    });
+
+    return result[0].result;
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
+
+// Function to be injected into the page
+function executeCommand(command) {
+  const commands = {
+    'click-element': (selector) => {
+      if (!selector) {
+        throw new Error('Selector is required. Usage: click-element [selector]');
+      }
+      
+      let element = document.querySelector(selector);
+      if (!element) {
+        // Try finding by text content
+        const elements = Array.from(document.getElementsByTagName('*'));
+        element = elements.find(el => 
+          el.textContent?.trim().toLowerCase() === selector.toLowerCase() &&
+          (el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'INPUT' || 
+           el.role === 'button' || el.getAttribute('onclick'))
+        );
+      }
+
+      if (!element) {
+        throw new Error(`No clickable element found with selector: ${selector}`);
+      }
+
+      element.click();
+      return `Clicked element: ${selector}`;
+    },
+    'type-text': (selector, text) => {
+      if (!selector || !text) {
+        throw new Error('Both selector and text are required. Usage: type-text [selector] [text]');
+      }
+
+      let element = document.querySelector(selector);
+      if (!element) {
+        // Try finding by placeholder
+        element = Array.from(document.getElementsByTagName('input')).find(el => 
+          el.placeholder?.toLowerCase().includes(selector.toLowerCase())
+        );
+
+        if (!element) {
+          // Try finding by label
+          const labels = Array.from(document.getElementsByTagName('label'));
+          const label = labels.find(l => 
+            l.textContent?.toLowerCase().includes(selector.toLowerCase())
+          );
+          if (label && label.htmlFor) {
+            element = document.getElementById(label.htmlFor);
+          }
         }
-        return { success: false, message: 'URL is required for navigation' };
-        
-      case 'click':
-        // Click on element
-        if (command.selector) {
-          const tab = await getCurrentTab();
-          await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            function: clickElement,
-            args: [command.selector]
-          });
-          return { success: true, message: `Clicked on element: ${command.selector}` };
-        }
-        return { success: false, message: 'Selector is required for click action' };
-        
-      case 'type':
-        // Type text
-        if (command.selector && command.text !== undefined) {
-          const tab = await getCurrentTab();
-          await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            function: typeText,
-            args: [command.selector, command.text]
-          });
-          return { success: true, message: `Typed text into: ${command.selector}` };
-        }
-        return { success: false, message: 'Selector and text are required for type action' };
-        
-      case 'getContent':
-        // Get page content
-        const tab = await getCurrentTab();
-        const result = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          function: getPageContent,
-          args: [command.selector]
-        });
-        return { success: true, content: result[0].result };
-        
-      case 'executeScript':
-        // Execute custom JavaScript
-        if (command.script) {
-          const tab = await getCurrentTab();
-          const result = await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            function: (script) => {
-              return eval(script);
-            },
-            args: [command.script]
-          });
-          return { success: true, result: result[0].result };
-        }
-        return { success: false, message: 'Script is required for executeScript action' };
-        
-      default:
-        return { success: false, message: `Unknown command action: ${command.action}` };
+      }
+
+      if (!element) {
+        throw new Error(`No input element found with selector: ${selector}`);
+      }
+
+      if (!['INPUT', 'TEXTAREA'].includes(element.tagName) && 
+          !element.isContentEditable) {
+        throw new Error(`Element ${selector} is not an input field`);
+      }
+
+      element.focus();
+      
+      if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
+        element.value = text;
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+      } else {
+        element.textContent = text;
+        element.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      }
+
+      return `Typed "${text}" into element: ${selector}`;
+    }
+  };
+
+  try {
+    const { name, args } = command;
+    if (commands[name]) {
+      const result = commands[name](...(args || []));
+      return { success: true, result: result };
+    } else {
+      return { 
+        success: false, 
+        error: `Unknown command: ${name}. Available commands: ${Object.keys(commands).join(', ')}`
+      };
     }
   } catch (error) {
-    console.error('Error executing command:', error);
     return { success: false, error: error.message };
-  }
-}
-
-// Helper function to get current active tab
-async function getCurrentTab() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tab;
-}
-
-// Helper function to broadcast connection status updates
-function broadcastConnectionUpdate(isConnected, message) {
-  chrome.runtime.sendMessage({
-    action: 'connectionUpdate',
-    isConnected: isConnected,
-    message: message
-  });
-}
-
-// Content script injection functions
-function clickElement(selector) {
-  const element = document.querySelector(selector);
-  if (element) {
-    element.click();
-    return true;
-  }
-  return false;
-}
-
-function typeText(selector, text) {
-  const element = document.querySelector(selector);
-  if (element) {
-    element.focus();
-    element.value = text;
-    // Create and dispatch an input event
-    const inputEvent = new Event('input', { bubbles: true });
-    element.dispatchEvent(inputEvent);
-    // Also dispatch change event
-    const changeEvent = new Event('change', { bubbles: true });
-    element.dispatchEvent(changeEvent);
-    return true;
-  }
-  return false;
-}
-
-function getPageContent(selector) {
-  if (selector) {
-    const element = document.querySelector(selector);
-    return element ? element.innerHTML : null;
-  } else {
-    return document.documentElement.outerHTML;
   }
 }

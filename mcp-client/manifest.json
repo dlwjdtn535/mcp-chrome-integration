@@ -24,7 +24,25 @@
     "tabs",
     "activeTab",
     "scripting",
-    "storage"
+    "storage",
+    "bookmarks",
+    "history",
+    "downloads",
+    "notifications",
+    "clipboardRead",
+    "clipboardWrite",
+    "cookies",
+    "webRequest",
+    "webNavigation",
+    "system.cpu",
+    "system.memory",
+    "system.storage",
+    "identity",
+    "contextMenus",
+    "debugger",
+    "geolocation",
+    "idle",
+    "power"
   ],
   "host_permissions": [
     "<all_urls>"

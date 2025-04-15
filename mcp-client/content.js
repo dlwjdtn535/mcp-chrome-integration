@@ -1,22 +1,49 @@
-// Content script that runs in the context of web pages
-
+//
+// chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+//   if (message.type === "hello") {
+//     setTimeout(() => {
+//       sendResponse({ reply: "hello!" });
+//     }, 100); // ✅ 비동기 응답
+//     return true; // 꼭 true를 반환해야 함
+//   }
+// });
 // Listen for commands from the background script
+// chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+//   console.log('Content script received message:', message);
+//
+//   // if (message.type === 'some') {
+//     doSomethingInPage();
+//     return true; // Keep channel open for async response
+//   // }
+//
+//   // if (message.type === 'executeContentCommand') {
+//   //   handleContentCommand(message.command)
+//   //     .then(result => sendResponse({ success: true, result }))
+//   //     .catch(error => sendResponse({ success: false, error: error.message }));
+//   //   return true; // Keep channel open for async response
+//   // }
+//   //
+//   // return false;
+// });
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('Content script received message:', message);
-
-  // if (message.type === 'some') {
-    doSomethingInPage();
-    return true; // Keep channel open for async response
-  // }
-
-  // if (message.type === 'executeContentCommand') {
-  //   handleContentCommand(message.command)
-  //     .then(result => sendResponse({ success: true, result }))
-  //     .catch(error => sendResponse({ success: false, error: error.message }));
-  //   return true; // Keep channel open for async response
-  // }
-  //
-  // return false;
+  console.log('Content script ^^^^^^^^^^^^^', message);
+  
+  if (message.greeting === "hello") {
+    alert('Hello World!');
+    console.log("Received greeting message");
+    sendResponse({ reply: "Hello from content script!" });
+    return true;
+  }
+  
+  if (message.type === "fetchData") {
+    fetch("https://api.example.com/data")
+        .then(res => res.json())
+        .then(data => sendResponse({ result: data }))
+        .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+  
+  return true; // 모든 메시지에 대해 비동기 응답을 허용
 });
 
 // Function to handle commands that need to be executed in the page context

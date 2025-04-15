@@ -17,6 +17,7 @@ chrome.runtime.onInstalled.addListener(() => {
 
 // Handle messages from popup or content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('Content script received @@#@#@#@#@#:12313', message);
   switch (message.action) {
     case 'connect':
       connectToServer(message.serverUrl)
@@ -112,146 +113,33 @@ function disconnectFromServer() {
 
 // Handle incoming WebSocket messages
 function handleServerMessage(data) {
-  try {
-    const message = JSON.parse(data);
-    console.log('Received message:', message);
-
-    if (message.type === 'command') {
-      handleServerCommand(message.data).then(result => {
-        // Send command result back to server
-        if (socket && isConnected) {
-          socket.send(JSON.stringify({
-            type: 'command_result',
-            data: result
-          }));
-        }
-      });
+  console.log('handleServerMessage:', data);
+  chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+    if (!tabs || tabs.length === 0) {
+      console.log('No active tab found');
+      return;
     }
-  } catch (error) {
-    console.error('Error processing message:', error);
-  }
-}
-
-// Handle commands from the server
-async function handleServerCommand(command) {
-  try {
-    const tab = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab[0]) return { success: false, message: 'No active tab found' };
-
-    // Skip if tab URL is restricted
-    if (!tab[0].url || tab[0].url.startsWith('chrome://') ||
-        tab[0].url.startsWith('edge://') || tab[0].url.startsWith('about:') ||
-        tab[0].url.startsWith('chrome-extension://')) {
-      return { success: false, message: 'Cannot execute commands in this page' };
-    }
-
-    chrome.tabs.sendMessage(
-        tabs[0].id,
-        {
-          action: "executeComplexFunction",
-          param1: 'Good',
-        },
-        (response) => {
-          if (response.success) {
-            resolve(response.data);
-          } else {
-            reject(new Error(response.error));
-          }
-        }
-    );
-
-    return { success: true };
-  } catch (error) {
-    return { success: false, message: error.message };
-  }
-}
-
-// Function to be injected into the page
-function executeCommand(command) {
-  const commands = {
-    'click-element': (selector) => {
-      if (!selector) {
-        throw new Error('Selector is required. Usage: click-element [selector]');
-      }
-
-      let element = document.querySelector(selector);
-      if (!element) {
-        // Try finding by text content
-        const elements = Array.from(document.getElementsByTagName('*'));
-        element = elements.find(el =>
-          el.textContent?.trim().toLowerCase() === selector.toLowerCase() &&
-          (el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'INPUT' ||
-           el.role === 'button' || el.getAttribute('onclick'))
-        );
-      }
-
-      if (!element) {
-        throw new Error(`No clickable element found with selector: ${selector}`);
-      }
-
-      element.click();
-      return `Clicked element: ${selector}`;
-    },
-    'type-text': (selector, text) => {
-      if (!selector || !text) {
-        throw new Error('Both selector and text are required. Usage: type-text [selector] [text]');
-      }
-
-      let element = document.querySelector(selector);
-      if (!element) {
-        // Try finding by placeholder
-        element = Array.from(document.getElementsByTagName('input')).find(el =>
-          el.placeholder?.toLowerCase().includes(selector.toLowerCase())
-        );
-
-        if (!element) {
-          // Try finding by label
-          const labels = Array.from(document.getElementsByTagName('label'));
-          const label = labels.find(l =>
-            l.textContent?.toLowerCase().includes(selector.toLowerCase())
-          );
-          if (label && label.htmlFor) {
-            element = document.getElementById(label.htmlFor);
-          }
-        }
-      }
-
-      if (!element) {
-        throw new Error(`No input element found with selector: ${selector}`);
-      }
-
-      if (!['INPUT', 'TEXTAREA'].includes(element.tagName) &&
-          !element.isContentEditable) {
-        throw new Error(`Element ${selector} is not an input field`);
-      }
-
-      element.focus();
-
-      if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
-        element.value = text;
-        element.dispatchEvent(new Event('input', { bubbles: true }));
-        element.dispatchEvent(new Event('change', { bubbles: true }));
+    
+    console.log('Sending message to tab:', tabs[0].id);
+    chrome.tabs.sendMessage(tabs[0].id, {greeting: "hello"}, function(response) {
+      if (chrome.runtime.lastError) {
+        console.log('Error sending message:', chrome.runtime.lastError.message);
+        // content script가 없는 경우 inject
+        chrome.scripting.executeScript({
+          target: { tabId: tabs[0].id },
+          files: ['content.js']
+        }).then(() => {
+          // inject 후 다시 메시지 전송
+          chrome.tabs.sendMessage(tabs[0].id, {greeting: "hello"}, function(response) {
+            console.log('Message sent after injection:', response);
+          });
+        }).catch(err => {
+          console.error('Script injection failed:', err);
+        });
       } else {
-        element.textContent = text;
-        element.dispatchEvent(new InputEvent('input', { bubbles: true }));
+        console.log('Message sent successfully:', response);
       }
-
-      return `Typed "${text}" into element: ${selector}`;
-    }
-  };
-
-  try {
-    const { name, args } = command;
-    if (commands[name]) {
-      const result = commands[name](...(args || []));
-      return { success: true, result: result };
-    } else {
-      return {
-        success: false,
-        error: `Unknown command: ${name}. Available commands: ${Object.keys(commands).join(', ')}`
-      };
-    }
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
+    });
+  });
 }
+

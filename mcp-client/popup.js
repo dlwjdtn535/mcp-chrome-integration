@@ -397,12 +397,3 @@ function addToLog(message) {
   logContainer.appendChild(logEntry);
   logContainer.scrollTop = logContainer.scrollHeight;
 }
-
-// Listen for messages from background script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'connectionUpdate') {
-    updateConnectionUI(message.isConnected);
-    addToLog(message.message);
-  }
-  return true; // Required for async response
-});

@@ -1,6 +1,8 @@
 import logging
 import asyncio
 import json
+import time
+
 import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -20,7 +22,6 @@ logger = logging.getLogger(__name__)
 # Initialize FastAPI app and managers
 app = FastAPI()
 manager = ConnectionManager()
-mcp = FastMCP()
 
 @app.websocket("/mcp")
 async def websocket_endpoint(websocket: WebSocket):
@@ -85,33 +86,13 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.error(f"Error in websocket connection {client_id}: {str(e)}")
         manager.disconnect(client_id)
 
-# def run_fastapi():
-#     """Run the FastAPI application"""
-#     uvicorn.run(app, host="0.0.0.0", port=8099, log_level="debug")
+
+
+# async def run():
+#     # MCP stdio (LM Studio 연동용)
+#     mcp_stdio = asyncio.create_task(mcp.run_stdio_async())
 #
-# async def run_mcp():
-#     """Run the MCP server"""
-#     try:
-#         await mcp.run(transport="stdio")
-#     except Exception as e:
-#         logger.error(f"MCP server error: {str(e)}")
-#         raise
-
-
-@mcp.tool()
-def tool_send():
-    manager.broadcast(
-        MessageModel(
-            type="system",
-            content=f"Client 1234 left the chat",
-            sender_id="server 1234"
-        ).json(),
-        exclude=None
-    )
-
-    """Another example tool for MCP server"""
-    return {"success": True, "message": "This is another example tool"}
-
+#     await asyncio.gather(mcp_stdio, fastapi_server)
 
 def main():
     async def run_server():
@@ -119,30 +100,21 @@ def main():
         server = uvicorn.Server(config)
         await server.serve()
 
-    async def run_mcp():
-        await mcp.run_stdio_async()
-
     async def broadcast_loop():
         i = 0
         while True:
             i += 1
-            await asyncio.sleep(2)  # time.sleep 대신 asyncio.sleep 사용
+            await asyncio.sleep(1)  # time.sleep 대신 asyncio.sleep 사용
             print("Sending broadcast message")
-            await manager.broadcast(
-                MessageModel(
-                    type="executeCommand",
-                    content=f"Client 1234 left the chat",
-                    sender_id="server 1234"
-                ).json(),
-                exclude=None
-            )  # 비동기 호출
+            await manager.broadcast("test", exclude="client_1")  # 비동기 호출
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(asyncio.gather(run_server(), run_mcp(), broadcast_loop()))
+        loop.run_until_complete(asyncio.gather(run_server(), broadcast_loop()))
     finally:
         loop.close()
 
 if __name__ == "__main__":
     main()
+

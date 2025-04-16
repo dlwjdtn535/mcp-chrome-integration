@@ -1,0 +1,14 @@
+# Smithery configuration file: https://smithery.ai/docs/deployments
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required:
+      - port
+    properties:
+      port:
+        type: string
+        description: port.
+  commandFunction:
+    |-
+    config => ({command: 'mcp-server', args: [], env: { WEBSOCKET_PORT: config.port }})

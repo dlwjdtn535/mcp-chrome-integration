@@ -17,7 +17,6 @@ chrome.runtime.onInstalled.addListener(() => {
 
 // Handle messages from popup or content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('Content script received @@#@#@#@#@#:12313', message);
   switch (message.action) {
     case 'connect':
       connectToServer(message.serverUrl)
@@ -34,12 +33,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'checkConnection':
       sendResponse({ isConnected: isConnected });
       return false;
-
-    case 'executeCommand':
-      handleServerCommand(message.command)
-        .then(result => sendResponse({ success: true, result }))
-        .catch(error => sendResponse({ success: false, error: error.message }));
-      return true;
   }
 });
 
@@ -86,6 +79,7 @@ function connectToServer(serverUrl) {
 
       socket.onmessage = (event) => {
         handleServerMessage(event.data);
+        updateState();
       };
     } catch (error) {
       reject(error);
@@ -111,17 +105,54 @@ function disconnectFromServer() {
   });
 }
 
+// Update the state of the extension based on the server message
+function updateState() {
+  console.log('updateState');
+  chrome.tabs.query({active: true, currentWindow: false }, function(tabs) {
+    if (!tabs || tabs.length === 0) {
+      return;
+    }
+
+    chrome.tabs.sendMessage(tabs[0].id, {
+      type: 'html',
+    }, function(response) {
+      if (chrome.runtime.lastError) {
+        chrome.scripting.executeScript({
+          target: { tabId: tabs[0].id },
+          files: ['content.js']
+        }).then(() => {
+          chrome.tabs.sendMessage(tabs[0].id, data, function(response) {
+          });
+        }).catch(err => {
+        });
+      } else {
+        if (response.success) {
+          console.log(response.result);
+          socket.send(JSON.stringify({
+            type: 'updateState',
+            args: [response.result],
+          }));
+        } else {
+          console.log('Error in response:', response);
+        }
+      }
+    });
+  });
+}
+
 // Handle incoming WebSocket messages
 function handleServerMessage(data) {
   console.log('handleServerMessage:', data);
-  chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+  data = JSON.parse(data);
+
+  chrome.tabs.query({ active: true, currentWindow: false }, function(tabs) {
     if (!tabs || tabs.length === 0) {
       console.log('No active tab found');
       return;
     }
     
     console.log('Sending message to tab:', tabs[0].id);
-    chrome.tabs.sendMessage(tabs[0].id, {greeting: "hello"}, function(response) {
+    chrome.tabs.sendMessage(tabs[0].id, data, function(response) {
       if (chrome.runtime.lastError) {
         console.log('Error sending message:', chrome.runtime.lastError.message);
         // content script가 없는 경우 inject
@@ -129,14 +160,14 @@ function handleServerMessage(data) {
           target: { tabId: tabs[0].id },
           files: ['content.js']
         }).then(() => {
-          // inject 후 다시 메시지 전송
-          chrome.tabs.sendMessage(tabs[0].id, {greeting: "hello"}, function(response) {
+          chrome.tabs.sendMessage(tabs[0].id, data, function(response) {
             console.log('Message sent after injection:', response);
           });
         }).catch(err => {
           console.error('Script injection failed:', err);
         });
       } else {
+        socket.send(JSON.stringify(data));
         console.log('Message sent successfully:', response);
       }
     });

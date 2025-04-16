@@ -25,13 +25,16 @@ mcp = FastMCP()
 @app.websocket("/mcp")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint handler"""
+    global client_id
+    global state
+
     client_id = await manager.connect(websocket)
 
     try:
         # Send initial connection confirmation
         welcome_msg = MessageModel(
             type="system",
-            content=f"Connected successfully. Your client ID is: {client_id}",
+            args=["Connected successfully. Your client ID is: {client_id}"],
             sender_id="server"
         )
         await manager.send_personal_message(welcome_msg.json(), client_id)
@@ -40,33 +43,20 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 # Receive and parse message
                 data = await websocket.receive_text()
-                message = MessageModel.parse_raw(data)
+                message = MessageModel.model_validate_json(data)
                 logger.info(f"Received message from {client_id}: {message}")
 
                 # Handle different message types
-                if message.type == "broadcast":
-                    await manager.broadcast(message.json(), exclude=client_id)
-                elif message.type == "group":
-                    group_name = message.content.get("group")
-                    if group_name:
-                        await manager.broadcast_to_group(
-                            group_name,
-                            message.json(),
-                            exclude=client_id
-                        )
-                else:  # Direct message
-                    response = MessageModel(
-                        type="response",
-                        content=f"Received: {message.content}",
-                        sender_id="server"
-                    )
-                    await manager.send_personal_message(response.json(), client_id)
+                if message.type == "updateState":
+                    # Handle state update
+                    if (message.args and isinstance(message.args, list) and len(message.args) > 0):
+                        state = message.args[0]
 
             except json.JSONDecodeError:
                 logger.warning(f"Invalid message format from {client_id}")
                 error_msg = MessageModel(
                     type="error",
-                    content="Invalid message format. Please send valid JSON.",
+                    args=["Invalid message format. Please send valid JSON."],
                     sender_id="server"
                 )
                 await manager.send_personal_message(error_msg.json(), client_id)
@@ -77,7 +67,7 @@ async def websocket_endpoint(websocket: WebSocket):
         await manager.broadcast(
             MessageModel(
                 type="system",
-                content=f"Client {client_id} left the chat",
+                args=[f"Client {client_id} left the chat"],
                 sender_id="server"
             ).json()
         )
@@ -97,20 +87,22 @@ async def websocket_endpoint(websocket: WebSocket):
 #         logger.error(f"MCP server error: {str(e)}")
 #         raise
 
+@mcp.tool()
+def tool_state() -> str:
+    return state
 
 @mcp.tool()
-def tool_send():
-    manager.broadcast(
+async def tool_send(url: str) -> str:
+    await manager.broadcast(
         MessageModel(
-            type="system",
-            content=f"Client 1234 left the chat",
-            sender_id="server 1234"
+            type="navigateTo",
+            args=[url],
+            sender_id="server"
         ).json(),
         exclude=None
     )
 
-    """Another example tool for MCP server"""
-    return {"success": True, "message": "This is another example tool"}
+    return "Tool executed successfully"
 
 
 def main():
@@ -122,25 +114,25 @@ def main():
     async def run_mcp():
         await mcp.run_stdio_async()
 
-    async def broadcast_loop():
-        i = 0
-        while True:
-            i += 1
-            await asyncio.sleep(2)  # time.sleep 대신 asyncio.sleep 사용
-            print("Sending broadcast message")
-            await manager.broadcast(
-                MessageModel(
-                    type="executeCommand",
-                    content=f"Client 1234 left the chat",
-                    sender_id="server 1234"
-                ).json(),
-                exclude=None
-            )  # 비동기 호출
+    # async def broadcast_loop():
+    #     i = 0
+    #     while True:
+    #         i += 1
+    #         await asyncio.sleep(2)  # time.sleep 대신 asyncio.sleep 사용
+    #         print("Sending broadcast message")
+    #         await manager.broadcast(
+    #             MessageModel(
+    #                 type="navigateTo",
+    #                 args=["https://www.naver.com"],
+    #                 sender_id="server 1234"
+    #             ).json(),
+    #             exclude=None
+    #         )  # 비동기 호출
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(asyncio.gather(run_server(), run_mcp(), broadcast_loop()))
+        loop.run_until_complete(asyncio.gather(run_server(), run_mcp()))
     finally:
         loop.close()
 

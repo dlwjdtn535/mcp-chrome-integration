@@ -71,30 +71,6 @@
   
   <button id="connectBtn">Connect</button>
   <button id="disconnectBtn" disabled>Disconnect</button>
-  
-  <div style="margin-top: 15px;">
-    <h3>JavaScript Executor</h3>
-    <div class="commands">
-      Available commands:
-      <code>change-background</code>
-      <code>count-links</code>
-      <code>get-title</code>
-      <code>get-url</code>
-      <code>scroll-to-bottom</code>
-      <code>scroll-to-top</code>
-      <code>get-html</code>
-      <code>navigate-to [url]</code>
-      <span class="command-desc">Example: navigate-to https://www.google.com</span>
-      <code>click-element [selector]</code>
-      <span class="command-desc">Example: click-element #submit-button</span>
-      <span class="command-desc">Or: click-element Submit (finds by text)</span>
-      <code>run-script [JavaScript code]</code>
-      <span class="command-desc">Example: run-script document.querySelector('.menu').style.display = 'none';</span>
-      <span class="command-desc">Example: run-script return Array.from(document.links).map(a => a.href);</span>
-    </div>
-    <textarea id="jsCode" placeholder="Enter a command from the list above"></textarea>
-    <button id="executeBtn">Execute Command</button>
-  </div>
 
   <div style="margin-top: 15px;">
     <h3>Status Log</h3>

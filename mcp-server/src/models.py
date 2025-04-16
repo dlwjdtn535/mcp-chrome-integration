@@ -6,6 +6,7 @@ from dataclasses import field
 class MessageModel(BaseModel):
     """WebSocket message model"""
     type: str
-    content: str
+    # string array 타입
+    args: Optional[list[str]] = None
     timestamp: datetime = field(default_factory=datetime.now)
     sender_id: Optional[str] = None 

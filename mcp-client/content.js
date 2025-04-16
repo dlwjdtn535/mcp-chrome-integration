@@ -1,310 +1,111 @@
-//
-// chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-//   if (message.type === "hello") {
-//     setTimeout(() => {
-//       sendResponse({ reply: "hello!" });
-//     }, 100); // ✅ 비동기 응답
-//     return true; // 꼭 true를 반환해야 함
-//   }
-// });
-// Listen for commands from the background script
-// chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-//   console.log('Content script received message:', message);
-//
-//   // if (message.type === 'some') {
-//     doSomethingInPage();
-//     return true; // Keep channel open for async response
-//   // }
-//
-//   // if (message.type === 'executeContentCommand') {
-//   //   handleContentCommand(message.command)
-//   //     .then(result => sendResponse({ success: true, result }))
-//   //     .catch(error => sendResponse({ success: false, error: error.message }));
-//   //   return true; // Keep channel open for async response
-//   // }
-//   //
-//   // return false;
-// });
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('Content script ^^^^^^^^^^^^^', message);
   
-  if (message.greeting === "hello") {
-    alert('Hello World!');
-    console.log("Received greeting message");
-    sendResponse({ reply: "Hello from content script!" });
-    return true;
-  }
-  
-  if (message.type === "fetchData") {
-    fetch("https://api.example.com/data")
-        .then(res => res.json())
-        .then(data => sendResponse({ result: data }))
-        .catch(err => sendResponse({ error: err.message }));
-    return true;
-  }
-  
-  return true; // 모든 메시지에 대해 비동기 응답을 허용
-});
+  const command = message.type;
+  const args = message.args || [];
 
-// Function to handle commands that need to be executed in the page context
-async function handleContentCommand(command) {
   try {
-    switch (command.action) {
-      case 'getElementDetails':
-        return getElementDetails(command.selector);
-        
-      case 'waitForElement':
-        return waitForElement(command.selector, command.timeout || 5000);
-        
-      case 'scrollTo':
-        return scrollToElement(command.selector || null, command.options || {});
-        
-      case 'observeDOM':
-        return observeDOM(command.selector, command.options || {});
-        
-      case 'stopObserving':
-        return stopObserving();
-        
-      default:
-        throw new Error(`Unknown content command action: ${command.action}`);
+    const commands = {
+      'html': () => {
+        return document.documentElement.outerHTML || 'No HTML found';
+      },
+      'changeBackground': () => {
+        document.body.style.backgroundColor = 'lightblue';
+        return 'Background color changed to light blue';
+      },
+      'navigateTo': () => {
+        if (args.length === 0) {
+          throw new Error('URL is required.');
+        }
+        // window.location.href = args[0];
+        return `Navigating to ${args[0]}...`;
+      },
+      'clickElement': (selector) => {
+        if (!selector) {
+          throw new Error('Selector is required. Usage: click-element #submit-button or click-element .class-name');
+        }
+
+        let element = document.querySelector(selector);
+
+        if (!element) {
+          const elements = Array.from(document.getElementsByTagName('*'));
+          element = elements.find(el =>
+            el.textContent?.trim().toLowerCase() === selector.toLowerCase() &&
+            (el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'INPUT' ||
+             el.role === 'button' || el.getAttribute('onclick'))
+          );
+        }
+
+        if (!element) {
+          throw new Error(`No clickable element found with selector: ${selector}`);
+        }
+
+        element.click();
+        return `Clicked element: ${selector}`;
+      },
+      'typeText': (selector, text) => {
+        if (!selector || !text) {
+          throw new Error('Both selector and text are required. Usage: type-text [selector] [text]');
+        }
+
+        let element = document.querySelector(selector);
+
+        if (!element) {
+          element = Array.from(document.getElementsByTagName('input')).find(el =>
+            el.placeholder?.toLowerCase().includes(selector.toLowerCase())
+          );
+
+          if (!element) {
+            const labels = Array.from(document.getElementsByTagName('label'));
+            const label = labels.find(l =>
+              l.textContent?.toLowerCase().includes(selector.toLowerCase())
+            );
+            if (label && label.htmlFor) {
+              element = document.getElementById(label.htmlFor);
+            }
+          }
+        }
+
+        if (!element) {
+          throw new Error(`No input element found with selector: ${selector}`);
+        }
+
+        if (!['INPUT', 'TEXTAREA'].includes(element.tagName) &&
+            !element.isContentEditable) {
+          throw new Error(`Element ${selector} is not an input field`);
+        }
+
+        element.focus();
+
+        if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
+          element.value = text;
+          element.dispatchEvent(new Event('input', { bubbles: true }));
+          element.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+          element.textContent = text;
+          element.dispatchEvent(new InputEvent('input', { bubbles: true }));
+        }
+
+        return `Typed "${text}" into element: ${selector}`;
+      },
+    };
+
+    if (commands[command]) {
+      const result = commands[command](...args);
+      sendResponse({ success: true, result });
+    } else {
+      sendResponse({
+        success: false,
+        error: `Unknown command. Available commands: ${Object.keys(commands).join(', ')}`
+      });
     }
   } catch (error) {
-    console.error('Error executing content command:', error);
-    throw error;
+    console.error('Command execution error:', error);
+    sendResponse({ success: false, error: error.message });
   }
-}
 
-// Get detailed information about an element
-function getElementDetails(selector) {
-  const element = document.querySelector(selector);
-  if (!element) {
-    return { exists: false };
-  }
-  
-  // Extract basic information
-  const rect = element.getBoundingClientRect();
-  const computedStyle = window.getComputedStyle(element);
-  
-  return {
-    exists: true,
-    tagName: element.tagName,
-    id: element.id,
-    classes: Array.from(element.classList),
-    attributes: getElementAttributes(element),
-    text: element.textContent,
-    value: element.value,
-    isVisible: isElementVisible(element),
-    position: {
-      x: rect.left + window.scrollX,
-      y: rect.top + window.scrollY,
-      width: rect.width,
-      height: rect.height
-    },
-    styles: {
-      display: computedStyle.display,
-      visibility: computedStyle.visibility,
-      opacity: computedStyle.opacity,
-      zIndex: computedStyle.zIndex
-    }
-  };
-}
-
-// Wait for an element to appear in the DOM
-function waitForElement(selector, timeout) {
-  return new Promise((resolve, reject) => {
-    // Check if element already exists
-    const element = document.querySelector(selector);
-    if (element) {
-      resolve({ exists: true, timeElapsed: 0 });
-      return;
-    }
-    
-    const startTime = Date.now();
-    const timeoutId = setTimeout(() => {
-      observer.disconnect();
-      reject(new Error(`Timeout waiting for element: ${selector}`));
-    }, timeout);
-    
-    // Set up mutation observer to watch for the element
-    const observer = new MutationObserver(() => {
-      const element = document.querySelector(selector);
-      if (element) {
-        clearTimeout(timeoutId);
-        observer.disconnect();
-        resolve({
-          exists: true,
-          timeElapsed: Date.now() - startTime
-        });
-      }
-    });
-    
-    // Start observing
-    observer.observe(document.documentElement, {
-      childList: true,
-      subtree: true
-    });
-  });
-}
-
-// Scroll to a specific element or position
-function scrollToElement(selector, options = {}) {
-  if (selector) {
-    const element = document.querySelector(selector);
-    if (!element) {
-      return { success: false, message: `Element not found: ${selector}` };
-    }
-    
-    // Scroll to element with smooth behavior by default
-    element.scrollIntoView({
-      behavior: options.behavior || 'smooth',
-      block: options.block || 'center',
-      inline: options.inline || 'nearest'
-    });
-    
-    return {
-      success: true,
-      message: `Scrolled to element: ${selector}`
-    };
-  } else if (options.x !== undefined || options.y !== undefined) {
-    // Scroll to specific coordinates
-    window.scrollTo({
-      top: options.y || window.scrollY,
-      left: options.x || window.scrollX,
-      behavior: options.behavior || 'smooth'
-    });
-    
-    return {
-      success: true,
-      message: `Scrolled to position: (${options.x || window.scrollX}, ${options.y || window.scrollY})`
-    };
-  }
-  
-  return { success: false, message: 'Missing selector or coordinates' };
-}
-
-// Global observer reference
-let domObserver = null;
-
-// Observe DOM changes for specific elements
-function observeDOM(selector, options = {}) {
-  // Stop any existing observation
-  if (domObserver) {
-    domObserver.disconnect();
-    domObserver = null;
-  }
-  
-  const targetElement = selector ? document.querySelector(selector) : document.body;
-  if (!targetElement) {
-    return { success: false, message: `Target element not found: ${selector}` };
-  }
-  
-  // Create a unique ID for this observation session
-  const observationId = Date.now().toString();
-  
-  // Set up the observer
-  domObserver = new MutationObserver((mutations) => {
-    const changes = mutations.map(mutation => {
-      const change = {
-        type: mutation.type,
-        target: describeNode(mutation.target)
-      };
-      
-      if (mutation.type === 'attributes') {
-        change.attributeName = mutation.attributeName;
-        change.oldValue = mutation.oldValue;
-        change.newValue = mutation.target.getAttribute(mutation.attributeName);
-      } else if (mutation.type === 'characterData') {
-        change.oldValue = mutation.oldValue;
-        change.newValue = mutation.target.textContent;
-      } else if (mutation.type === 'childList') {
-        change.addedNodes = Array.from(mutation.addedNodes).map(describeNode);
-        change.removedNodes = Array.from(mutation.removedNodes).map(describeNode);
-      }
-      
-      return change;
-    });
-    
-    // Send changes to background script
-    chrome.runtime.sendMessage({
-      type: 'domObservation',
-      observationId,
-      changes
-    });
-  });
-  
-  // Configure and start observation
-  domObserver.observe(targetElement, {
-    attributes: options.attributes !== false,
-    childList: options.childList !== false,
-    subtree: options.subtree !== false,
-    characterData: options.characterData !== false,
-    attributeOldValue: options.attributeOldValue !== false,
-    characterDataOldValue: options.characterDataOldValue !== false
-  });
-  
-  return {
-    success: true,
-    observationId,
-    message: `Started observing ${selector || 'body'}`
-  };
-}
-
-// Stop DOM observation
-function stopObserving() {
-  if (domObserver) {
-    domObserver.disconnect();
-    domObserver = null;
-    return { success: true, message: 'DOM observation stopped' };
-  }
-  return { success: false, message: 'No active observation to stop' };
-}
-
-// Helper function to describe a DOM node
-function describeNode(node) {
-  if (!node) return null;
-  
-  if (node.nodeType === Node.ELEMENT_NODE) {
-    return {
-      nodeType: 'ELEMENT',
-      tagName: node.tagName,
-      id: node.id,
-      className: node.className,
-      attributes: getElementAttributes(node)
-    };
-  } else if (node.nodeType === Node.TEXT_NODE) {
-    return {
-      nodeType: 'TEXT',
-      textContent: node.textContent.substring(0, 100) + (node.textContent.length > 100 ? '...' : '')
-    };
-  } else {
-    return {
-      nodeType: 'OTHER',
-      nodeTypeCode: node.nodeType
-    };
-  }
-}
-
-// Helper function to get all attributes of an element
-function getElementAttributes(element) {
-  const attributes = {};
-  for (let i = 0; i < element.attributes.length; i++) {
-    const attr = element.attributes[i];
-    attributes[attr.name] = attr.value;
-  }
-  return attributes;
-}
-
-// Helper function to check if an element is visible
-function isElementVisible(element) {
-  if (!element) return false;
-  
-  const style = window.getComputedStyle(element);
-  return style.display !== 'none' && 
-         style.visibility !== 'hidden' && 
-         style.opacity !== '0' &&
-         element.offsetWidth > 0 &&
-         element.offsetHeight > 0;
-}
+  return true; // 모든 메시지에 대해 비동기 응답을 허용
+});
 
 // Inform background script that content script is loaded
 chrome.runtime.sendMessage({
@@ -312,8 +113,359 @@ chrome.runtime.sendMessage({
   url: window.location.href
 });
 
-function doSomethingInPage() {
-  console.log("페이지에서 실행되는 함수!");
-  alert('test');
-  return "함수 실행 결과";
+async function executeCommand() {
+  const code = jsCodeInput.value.trim();
+  
+  if (!code) {
+    addToLog('Error: Please enter JavaScript code to execute');
+    return;
+  }
+
+  try {
+    // Get the active tab
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    // Check if the URL is restricted
+    if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('edge://') || tab.url.startsWith('about:') || tab.url.startsWith('chrome-extension://')) {
+      addToLog('Error: Cannot execute JavaScript in this page. Please try on a regular web page.');
+      return;
+    }
+
+    // Parse command and arguments
+    let command, args;
+    if (code.startsWith('run-script')) {
+      command = 'run-script';
+      args = [code.substring('run-script'.length).trim()];
+    } else {
+      [command, ...args] = code.split(' ');
+    }
+
+    // Execute the code in the active tab
+    const result = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: (command, args) => {
+        const commands = {
+          'change-background': () => {
+            document.body.style.backgroundColor = 'lightblue';
+            return 'Background color changed to light blue';
+          },
+          'count-links': () => {
+            const count = document.getElementsByTagName('a').length;
+            alert(`Found ${count} links on this page`);
+            console.log(`Found ${count} links on this page`);
+            return `Found ${count} links on this page`;
+          },
+          'get-title': () => {
+            return `Page title: ${document.title}`;
+          },
+          'get-url': () => {
+            return `Current URL: ${window.location.href}`;
+          },
+          'scroll-to-bottom': () => {
+            window.scrollTo(0, document.body.scrollHeight);
+            return 'Scrolled to bottom of page';
+          },
+          'scroll-to-top': () => {
+            window.scrollTo(0, 0);
+            return 'Scrolled to top of page';
+          },
+          'get-html': () => {
+            const html = document.documentElement.outerHTML;
+            console.log('Page HTML:', html);
+            return `HTML retrieved (${html.length} characters). Check console for full HTML.`;
+          },
+          'navigate-to': (url) => {
+            if (!url) {
+              throw new Error('URL is required. Usage: navigate-to https://example.com');
+            }
+            window.location.href = url;
+            return `Navigating to ${url}...`;
+          },
+          'click-element': (selector) => {
+            if (!selector) {
+              throw new Error('Selector is required. Usage: click-element #submit-button or click-element .class-name');
+            }
+            
+            // Try different selector types
+            let element = document.querySelector(selector);
+            
+            if (!element) {
+              // Try finding by text content
+              const elements = Array.from(document.getElementsByTagName('*'));
+              element = elements.find(el => 
+                el.textContent?.trim().toLowerCase() === selector.toLowerCase() &&
+                (el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'INPUT' || 
+                 el.role === 'button' || el.getAttribute('onclick'))
+              );
+            }
+
+            if (!element) {
+              throw new Error(`No clickable element found with selector: ${selector}`);
+            }
+
+            element.click();
+            return `Clicked element: ${selector}`;
+          },
+          'type-text': (selector, text) => {
+            if (!selector || !text) {
+              throw new Error('Both selector and text are required. Usage: type-text [selector] [text]');
+            }
+
+            // Try different selector types
+            let element = document.querySelector(selector);
+
+            if (!element) {
+              // Try finding by placeholder
+              element = Array.from(document.getElementsByTagName('input')).find(el => 
+                el.placeholder?.toLowerCase().includes(selector.toLowerCase())
+              );
+
+              if (!element) {
+                // Try finding by label
+                const labels = Array.from(document.getElementsByTagName('label'));
+                const label = labels.find(l => 
+                  l.textContent?.toLowerCase().includes(selector.toLowerCase())
+                );
+                if (label && label.htmlFor) {
+                  element = document.getElementById(label.htmlFor);
+                }
+              }
+            }
+
+            if (!element) {
+              throw new Error(`No input element found with selector: ${selector}`);
+            }
+
+            if (!['INPUT', 'TEXTAREA'].includes(element.tagName) && 
+                !element.isContentEditable) {
+              throw new Error(`Element ${selector} is not an input field`);
+            }
+
+            // Focus the element
+            element.focus();
+
+            // Clear existing value if it's an input/textarea
+            if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
+              element.value = '';
+              // Trigger input event
+              element.dispatchEvent(new Event('input', { bubbles: true }));
+            } else {
+              // For contenteditable elements
+              element.textContent = '';
+            }
+
+            // Type the text
+            if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
+              element.value = text;
+              // Trigger input and change events
+              element.dispatchEvent(new Event('input', { bubbles: true }));
+              element.dispatchEvent(new Event('change', { bubbles: true }));
+            } else {
+              // For contenteditable elements
+              element.textContent = text;
+              element.dispatchEvent(new InputEvent('input', { bubbles: true }));
+            }
+
+            return `Typed "${text}" into element: ${selector}`;
+          },
+          'run-script': (script) => {
+            if (!script) {
+              throw new Error('Script is required. Usage: run-script <your JavaScript code>');
+            }
+            try {
+              const scriptFunction = new Function(script);
+              const result = scriptFunction();
+              console.log('Script execution result:', result);
+              return typeof result === 'undefined' ? 'Script executed successfully' : 
+                     `Script result: ${JSON.stringify(result)}`;
+            } catch (error) {
+              console.error('Script execution error:', error);
+              throw new Error(`Script execution failed: ${error.message}`);
+            }
+          },
+          // New commands
+          'get-meta-tags': () => {
+            const metaTags = Array.from(document.getElementsByTagName('meta'));
+            const metaInfo = metaTags.map(tag => ({
+              name: tag.getAttribute('name'),
+              property: tag.getAttribute('property'),
+              content: tag.getAttribute('content'),
+              charset: tag.getAttribute('charset'),
+              httpEquiv: tag.getAttribute('http-equiv')
+            }));
+            console.log('Meta tags:', metaInfo);
+            return `Found ${metaInfo.length} meta tags. Check console for details.`;
+          },
+          'get-images': () => {
+            const images = Array.from(document.getElementsByTagName('img'));
+            const imageInfo = images.map(img => ({
+              src: img.src,
+              alt: img.alt,
+              width: img.width,
+              height: img.height,
+              naturalWidth: img.naturalWidth,
+              naturalHeight: img.naturalHeight,
+              loading: img.loading,
+              className: img.className
+            }));
+            console.log('Images:', imageInfo);
+            return `Found ${imageInfo.length} images. Check console for details.`;
+          },
+          'get-forms': () => {
+            const forms = Array.from(document.getElementsByTagName('form'));
+            const formInfo = forms.map(form => ({
+              id: form.id,
+              name: form.name,
+              method: form.method,
+              action: form.action,
+              elements: Array.from(form.elements).map(element => ({
+                type: element.type,
+                name: element.name,
+                id: element.id,
+                value: element.type === 'password' ? '***' : element.value,
+                required: element.required,
+                disabled: element.disabled
+              }))
+            }));
+            console.log('Forms:', formInfo);
+            return `Found ${formInfo.length} forms. Check console for details.`;
+          },
+          'get-links': () => {
+            const links = Array.from(document.getElementsByTagName('a'));
+            const linkInfo = links.map(link => ({
+              href: link.href,
+              text: link.textContent.trim(),
+              title: link.title,
+              target: link.target,
+              rel: link.rel,
+              className: link.className,
+              isVisible: link.offsetParent !== null
+            }));
+            console.log('Links:', linkInfo);
+            return `Found ${linkInfo.length} links. Check console for details.`;
+          },
+          // Bookmark commands
+          'list-bookmarks': async () => {
+            const bookmarks = await chrome.bookmarks.getTree();
+            console.log('Bookmarks:', bookmarks);
+            return 'Bookmarks retrieved. Check console for details.';
+          },
+          'add-bookmark': async (url, title) => {
+            if (!url) throw new Error('URL is required. Usage: add-bookmark [url] [title]');
+            const bookmark = await chrome.bookmarks.create({
+              url: url,
+              title: title || url
+            });
+            return `Bookmark added: ${bookmark.title}`;
+          },
+          // History commands
+          'get-history': async (searchQuery) => {
+            const history = await chrome.history.search({
+              text: searchQuery || '',
+              maxResults: 100
+            });
+            console.log('History:', history);
+            return `Found ${history.length} history items. Check console for details.`;
+          },
+          // Download commands
+          'download-file': (url) => {
+            if (!url) throw new Error('URL is required. Usage: download-file [url]');
+            chrome.downloads.download({ url: url });
+            return `Download started for: ${url}`;
+          },
+          'show-downloads': async () => {
+            const downloads = await chrome.downloads.search({});
+            console.log('Downloads:', downloads);
+            return `Found ${downloads.length} downloads. Check console for details.`;
+          },
+          // Notification commands
+          'show-notification': (title, message) => {
+            if (!title || !message) throw new Error('Title and message required. Usage: show-notification [title] [message]');
+            chrome.notifications.create({
+              type: 'basic',
+              iconUrl: 'images/icon128.png',
+              title: title,
+              message: message
+            });
+            return 'Notification sent';
+          },
+          // Clipboard commands
+          'copy-to-clipboard': async (text) => {
+            if (!text) throw new Error('Text is required. Usage: copy-to-clipboard [text]');
+            await navigator.clipboard.writeText(text);
+            return 'Text copied to clipboard';
+          },
+          'read-clipboard': async () => {
+            const text = await navigator.clipboard.readText();
+            return `Clipboard contents: ${text}`;
+          },
+          // Cookie commands
+          'get-cookies': async () => {
+            const cookies = await chrome.cookies.getAll({});
+            console.log('Cookies:', cookies);
+            return `Found ${cookies.length} cookies. Check console for details.`;
+          },
+          'delete-cookies': async (domain) => {
+            if (!domain) throw new Error('Domain is required. Usage: delete-cookies [domain]');
+            const removed = await chrome.cookies.getAll({ domain: domain });
+            for (const cookie of removed) {
+              await chrome.cookies.remove({
+                url: `http${cookie.secure ? 's' : ''}://${cookie.domain}${cookie.path}`,
+                name: cookie.name
+              });
+            }
+            return `Removed ${removed.length} cookies from ${domain}`;
+          },
+          // System commands
+          'get-system-info': async () => {
+            const cpu = await chrome.system.cpu.getInfo();
+            const memory = await chrome.system.memory.getInfo();
+            const storage = await chrome.system.storage.getInfo();
+            console.log('System Info:', { cpu, memory, storage });
+            return 'System information retrieved. Check console for details.';
+          },
+          // Geolocation commands
+          'get-location': () => {
+            return new Promise((resolve, reject) => {
+              navigator.geolocation.getCurrentPosition(
+                (position) => {
+                  const { latitude, longitude } = position.coords;
+                  resolve(`Location: ${latitude}, ${longitude}`);
+                },
+                (error) => reject(`Geolocation error: ${error.message}`)
+              );
+            });
+          },
+          // Power commands
+          'get-power-info': async () => {
+            if (navigator.getBattery) {
+              const battery = await navigator.getBattery();
+              return `Battery: ${(battery.level * 100).toFixed(1)}%, ${battery.charging ? 'Charging' : 'Not charging'}`;
+            }
+            return 'Battery information not available';
+          }
+        };
+
+        if (commands[command]) {
+          return { success: true, result: commands[command](...args) };
+        } else {
+          return { 
+            success: false, 
+            error: `Unknown command. Available commands: ${Object.keys(commands).join(', ')}`
+          };
+        }
+      },
+      args: [command, args]
+    });
+
+    // Log the result
+    const executionResult = result[0].result;
+    if (executionResult.success) {
+      addToLog(`Success: ${executionResult.result}`);
+    } else {
+      addToLog(`Error: ${executionResult.error}`);
+    }
+  } catch (error) {
+    addToLog(`Error: ${error.message}`);
+  }
 }

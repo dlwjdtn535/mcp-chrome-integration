@@ -1,13 +1,3 @@
-// Get current tab ID
-let tabId = null;
-chrome.runtime.sendMessage({ type: 'getTabId' }, (response) => {
-  if (chrome.runtime.lastError) {
-    console.error('Error getting tab ID:', chrome.runtime.lastError);
-    return;
-  }
-  tabId = response.tabId;
-});
-
 // Command definitions
 const commands = {
   'status': () => {

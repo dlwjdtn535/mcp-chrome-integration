@@ -1,72 +1,175 @@
-# MCP - Model Control Protocol
+# MCP (Model Control Protocol)
 
-Chrome 브라우저를 제어하기 위한 Model Control Protocol (MCP) 구현입니다.
+A protocol that enables AI models to control Chrome browser and perform web automation.
 
-## 구성 요소
+## Key Features
 
-이 프로젝트는 다음 두 가지 주요 구성 요소로 이루어져 있습니다:
+### 1. Page Navigation & Interaction
+- URL Navigation
+- Element Clicking
+- Text Input
+- Form Filling
+- Page Scrolling
+- Table Data Extraction
+- JavaScript Code Execution
 
-1. **mcp-client**: Chrome 확장 프로그램으로, 브라우저와 서버 간의 인터페이스 역할을 합니다.
-2. **mcp-server**: TypeScript로 구현된 서버로, MCP 프로토콜을 통해 클라이언트에 명령을 전송하고 ModelContextProtocol SDK를 통해 AI 모델과 통신합니다.
+### 2. Element Manipulation
+- Get Element Information (dimensions, styles, visibility)
+- Wait for Elements
+- Change Background Colors
+- Get Page State and Content
 
-## 설치 및 사용 방법
+### 3. Page Analysis
+- Get HTML Content
+- Count Links
+- Extract Meta Tags
+- Get Image Information
+- Form Analysis
+- Page Content Streaming
 
-### mcp-client (Chrome 확장 프로그램)
+### 4. Browser Features
+- Bookmark Management
+- Access Browser History
+- Handle Downloads
+- Show Notifications
+- Clipboard Management
+- Cookie Handling
 
-1. `mcp-client` 디렉토리로 이동합니다.
-2. Chrome 브라우저에서 `chrome://extensions/`로 이동합니다.
-3. 개발자 모드를 활성화합니다.
-4. "압축해제된 확장 프로그램을 로드합니다" 버튼을 클릭하고 `mcp-client` 디렉토리를 선택합니다.
+### 5. System Integration
+- Get System Information
+- Access Geolocation
+- Monitor Power/Battery Status
+- Take Screenshots
 
-### mcp-server (TypeScript 서버)
+## Usage Examples
 
-1. `mcp-server` 디렉토리로 이동합니다.
-2. 필요한 의존성을 설치합니다:
-   ```
-   npm install
-   ```
-3. TypeScript 코드를 컴파일합니다:
-   ```
-   npm run build
-   ```
-4. 서버를 시작합니다:
-   ```
-   npm start
-   ```
+```python
+# Navigate to URL
+tool_navigate_to(url="https://example.com", tab_id="your_tab_id")
 
-## 아키텍처
+# Click Element
+tool_click_element(selector="#submit-button", tab_id="your_tab_id")
 
-이 시스템은 다음과 같은 아키텍처로 구성됩니다:
+# Type Text
+tool_type_text(selector="#search", text="query", tab_id="your_tab_id")
 
+# Check Page State
+tool_state(tab_id="your_tab_id")
+
+# Execute JavaScript
+tool_execute_script(script="console.log('Hello')", tab_id="your_tab_id")
+
+# Extract Table Data
+tool_extract_table(selector=".data-table", tab_id="your_tab_id")
+
+# Get Element Info
+tool_get_element_info(selector=".my-element", tab_id="your_tab_id")
 ```
-AI 모델 <-- stdio --> MCP 서버 <-- WebSocket --> Chrome 확장 프로그램 <--> 웹 페이지
+
+## Important Notes
+
+### 1. Chrome Security Restrictions
+- Does not work on chrome:// URLs
+- Only works on regular websites (http:// or https://)
+- Some websites' Content Security Policy (CSP) may restrict certain operations
+- Consider website's CSP when executing JavaScript
+
+### 2. Tab Management
+- tab_id required for all operations
+- Use tool_tab_list() to check available tabs
+- Check tab state before operations
+
+### 3. Error Handling
+- Check return values for success/failure status
+- Handle timeouts for wait operations
+- Consider website loading state
+
+## Installation & Setup
+
+### 1. Chrome Extension Installation & Setup
+1. Prepare Extension
+   ```bash
+   # Navigate to extension directory
+   cd mcp-client
+   ```
+
+2. Install in Chrome Browser
+   - Open Chrome browser
+   - Enter `chrome://extensions/` in address bar
+   - Enable "Developer mode" toggle in top-right
+   - Click "Load unpacked" button in top-left
+   - Select the `mcp-client` directory
+
+3. Configure Extension
+   - Click MCP extension icon in Chrome toolbar
+   - Enter server URL (default: `ws://localhost:8012`)
+   - Click "Connect" button to connect to server
+   - Connection status should change to "Connected"
+
+4. Using the Extension
+   - Works automatically in connected tabs
+   - For new tabs, click extension icon and connect
+   - Monitor operations in log window
+   - Click "Disconnect" to end connection
+
+### 2. Server Setup
+```bash
+# Navigate to server directory
+cd mcp-server
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Start server
+python src/server.py
 ```
 
-1. AI 모델은 표준 입출력(stdio)을 통해 MCP 서버와 통신합니다.
-2. MCP 서버는 WebSocket을 통해 Chrome 확장 프로그램에 명령을 전송합니다.
-3. Chrome 확장 프로그램은 웹 페이지의 DOM을 조작하거나 브라우저 API를 호출합니다.
+## Extension Features
 
-## 주요 기능
+### 1. Popup Interface
+- Server URL Configuration
+- Connect/Disconnect Button
+- Current Tab Status
+- Log Message Viewer
 
-- **브라우저 제어**: 페이지 이동, 요소 클릭, 텍스트 입력 등
-- **콘텐츠 추출**: 웹 페이지 또는 요소의 내용 가져오기
-- **스크립트 실행**: 웹 페이지 컨텍스트에서 JavaScript 실행
-- **DOM 관찰**: 페이지의 변경 사항 추적
-- **AI 모델 통합**: ModelContextProtocol SDK를 통한 AI 모델과의 쉬운 통합
+### 2. Background Features
+- Tab Management
+- WebSocket Connection Maintenance
+- Automatic Reconnection
+- Error Recovery
 
-## 기술 스택
+### 3. Security Features
+- HTTPS Support
+- CSP Compliance
+- Secure Script Execution
+- Permission Management
 
-- **클라이언트**: JavaScript, Chrome Extension API
-- **서버**: TypeScript, Express, WebSocket, ModelContextProtocol SDK
-- **통신**: WebSocket, HTTP REST API, stdio
+### 4. Debugging
+- Log Viewing in Developer Tools
+- Detailed Error Messages
+- Network Communication Monitoring
+- Execution State Tracking
 
-## 상세 정보
+## Troubleshooting
 
-각 구성 요소에 대한 자세한 정보는 해당 디렉토리의 README 파일을 참조하세요:
+### 1. Connection Issues
+- Verify Server URL
+- Check Server Status
+- Check Firewall Settings
+- Verify WebSocket Port (8012) Availability
 
-- [mcp-client README](mcp-client/README.md)
-- [mcp-server README](mcp-server/README.md)
+### 2. Execution Errors
+- Check CSP Restrictions
+- Grant Required Permissions
+- Review Console Error Messages
+- Validate Tab IDs
 
-## 라이선스
+### 3. Performance Issues
+- Monitor Memory Usage
+- Disconnect Unused Tabs
+- Adjust Status Update Frequency
+- Optimize Large Data Processing
+
+## License
 
 MIT 

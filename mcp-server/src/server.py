@@ -23,7 +23,7 @@ load_dotenv()
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -49,11 +49,13 @@ def get_prompt() -> str:
        - Fill forms
        - Scroll page
        - Extract table data
+       - Execute JavaScript code
     
     2. Element Manipulation:
        - Get element information (dimensions, styles, visibility)
        - Wait for elements to appear
        - Change background colors
+       - Get page state and content
     
     3. Page Analysis:
        - Get page HTML
@@ -61,6 +63,7 @@ def get_prompt() -> str:
        - Extract meta tags
        - Get image information
        - Analyze forms
+       - Stream page content
     
     4. Browser Features:
        - Manage bookmarks
@@ -79,17 +82,44 @@ def get_prompt() -> str:
     The server uses WebSocket for real-time communication with the Chrome extension
     and provides a robust error handling mechanism for all operations.
     
+    Usage Examples:
+    1. Navigate to a URL:
+       tool_navigate_to(url="https://example.com", tab_id="your_tab_id")
+    
+    2. Click an element:
+       tool_click_element(selector="#submit-button", tab_id="your_tab_id")
+    
+    3. Type text:
+       tool_type_text(selector="#search", text="query", tab_id="your_tab_id")
+    
+    4. Get page state:
+       tool_state(tab_id="your_tab_id")
+    
+    5. Execute JavaScript:
+       tool_execute_script(script="console.log('Hello')", tab_id="your_tab_id")
+    
+    6. Extract table data:
+       tool_extract_table(selector=".data-table", tab_id="your_tab_id")
+    
+    7. Get element info:
+       tool_get_element_info(selector=".my-element", tab_id="your_tab_id")
+    
     Important Notes:
     1. Chrome Security Restrictions:
        - The extension cannot operate on chrome:// URLs due to Chrome's security restrictions
        - If you're on a chrome:// page, please navigate to a regular website (http:// or https://)
-       - Recommended starting pages: https://www.google.com or https://www.example.com
+       - Some websites may have Content Security Policy (CSP) that restricts certain operations
+       - For JavaScript execution, use appropriate methods based on the website's CSP
     
-    Example commands:
-    1. Navigate: "tool_navigate_to('https://example.com')"
-    2. Click: "tool_click_element('#submit-button')"
-    3. Type: "tool_type_text('#search', 'query')"
-    4. Extract: "tool_extract_table('.data-table')"
+    2. Tab Management:
+       - Always provide tab_id for operations
+       - Use tool_tab_list() to get available tabs
+       - Check tab state before operations
+    
+    3. Error Handling:
+       - Check return values for success/error status
+       - Handle timeouts for wait operations
+       - Consider website's loading state
     """
     return get_prompt.__doc__
 
@@ -121,8 +151,6 @@ async def websocket_endpoint(websocket: WebSocket, tab_id: str):
                 data = await websocket.receive_text()
                 # json string to dict
                 message = json.loads(data)
-                logger.info(f"Received message from {tab_id}: {message}")
-
                 # Handle different message types
                 if message['type'] == "updateState":
                     # Handle state update
@@ -167,12 +195,56 @@ def tool_state(tab_id: str = None) -> Dict[str, Any]:
         tab_id: ID of the target tab
         
     Returns:
-        Dict containing the current state
+        Dict containing basic state information without HTML content
     """
     if not tab_id:
         return {"error": "Tab ID is required"}
     
-    return manager.get_tab_info(tab_id)
+    tab_info = manager.get_tab_info(tab_id)
+    # HTML 컨텐츠를 제외한 기본 정보만 반환
+    return {
+        "url": tab_info.get("url"),
+        "has_content": bool(tab_info.get("content")),
+        "content_size": len(tab_info.get("content", "")) if tab_info.get("content") else 0
+    }
+
+@mcp.tool()
+async def tool_stream_content(tab_id: str = None, chunk_size: int = 10000, chunk_number: int = 1) -> Dict[str, Any]:
+    """Get a specific chunk of HTML content from a tab.
+    
+    Args:
+        tab_id: ID of the target tab
+        chunk_size: Size of each chunk in characters
+        chunk_number: The chunk number to retrieve (starting from 1)
+        
+    Returns:
+        Dict containing chunk information and data
+    """
+    if not tab_id:
+        return {"error": "Tab ID is required"}
+
+    tab_info = manager.get_tab_info(tab_id)
+    content = tab_info.get("content", "")
+    
+    if not content:
+        return {"error": "No content available"}
+
+    total_chunks = (len(content) + chunk_size - 1) // chunk_size
+    
+    if chunk_number < 1 or chunk_number > total_chunks:
+        return {"error": f"Invalid chunk number. Must be between 1 and {total_chunks}"}
+    
+    start_idx = (chunk_number - 1) * chunk_size
+    end_idx = min(start_idx + chunk_size, len(content))
+    chunk = content[start_idx:end_idx]
+    
+    return {
+        "chunk_number": chunk_number,
+        "total_chunks": total_chunks,
+        "chunk_size": len(chunk),
+        "content": chunk,
+        "is_last": chunk_number == total_chunks
+    }
 
 @mcp.tool()
 async def tool_change_background(color: str = "lightblue", tab_id: str = None) -> str:

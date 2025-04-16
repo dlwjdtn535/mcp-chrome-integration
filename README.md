@@ -1,4 +1,4 @@
-# MCP (Model Control Protocol)
+# MCP Chrome Integration 
 [![smithery badge](https://smithery.ai/badge/@dlwjdtn535/mcp-chrome-integration)](https://smithery.ai/server/@dlwjdtn535/mcp-chrome-integration)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow.svg)](https://buymeacoffee.com/dlwjdtn535)
 

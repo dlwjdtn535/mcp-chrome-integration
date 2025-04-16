@@ -7,8 +7,8 @@ startCommand:
       - port
     properties:
       port:
-        type: integer
-        description: port.
+        type: number
+        description: websocket port for the MCP server
   commandFunction:
     |-
     config => ({command: 'mcp-server', args: [], env: { WEBSOCKET_PORT: config.port }})

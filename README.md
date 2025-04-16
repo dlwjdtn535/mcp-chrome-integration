@@ -13,6 +13,8 @@ A protocol that enables AI models to control Chrome browser and perform web auto
 
 ### Installing via Smithery
 
+To install Chrome Browser Automation Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@dlwjdtn535/mcp-chrome-integration):
+
 ```bash
 npx -y @smithery/cli install @dlwjdtn535/mcp-chrome-integration --client claude
 ```

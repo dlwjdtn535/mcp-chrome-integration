@@ -1,18 +1,16 @@
-import logging
 import asyncio
 import json
-import uvicorn
+import logging
 import os
+from typing import Dict, Any
+
+import uvicorn
 from dotenv import load_dotenv
-from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from mcp.server import FastMCP
-import threading
-from typing import Dict, Any, Optional
-from datetime import datetime
 
-from models import MessageModel
 from managers import ConnectionManager
+from models import MessageModel
 
 # Load environment variables
 load_dotenv()
@@ -100,8 +98,7 @@ async def websocket_endpoint(websocket: WebSocket, tab_id: str):
         
         # Update tab information
         manager.update_tab_info(tab_id, {
-            "url": websocket.url.path,
-            "connected_at": datetime.now().isoformat(),
+            "url": None,
             "content": None
         })
         
@@ -110,17 +107,17 @@ async def websocket_endpoint(websocket: WebSocket, tab_id: str):
             try:
                 # Receive and parse message
                 data = await websocket.receive_text()
-                message = MessageModel.model_validate_json(data)
+                # json string to dict
+                message = json.loads(data)
                 logger.info(f"Received message from {tab_id}: {message}")
 
                 # Handle different message types
-                if message.type == "updateState":
+                if message['type'] == "updateState":
                     # Handle state update
-                    if (message.args and isinstance(message.args, list) and len(message.args) > 0):
+                    if (message['args'] and isinstance(message['args'], list) and len(message['args']) > 0):
                         manager.update_tab_info(tab_id, {
-                            "url": websocket.url.path,
-                            "connected_at": datetime.now().isoformat(),
-                            "content": message.args[0]
+                            "url": message['args'][0],
+                            "content": message['args'][1]
                         })
 
             except json.JSONDecodeError:
@@ -151,7 +148,7 @@ def tool_tab_list() -> Dict[str, Any]:
 
 
 @mcp.tool()
-async def tool_state(tab_id: str = None) -> Dict[str, Any]:
+def tool_state(tab_id: str = None) -> Dict[str, Any]:
     """Get the current state of a specific tab.
     
     Args:
@@ -366,27 +363,28 @@ def main():
     async def run_mcp():
         await mcp.run_stdio_async()
 
+    # async def broadcast_loop():
+    #     i = 0
+    #     while True:
+    #         i += 1
+    #         await asyncio.sleep(5)  # time.sleep 대신 asyncio.sleep 사용
+    #
+    #         print(manager.get_active_tabs())
+    #         print(manager.get_tab_info("1089126072"))
+    #         print("Sending broadcast message")
+    #         await manager.send_personal_message(
+    #             MessageModel(
+    #                 type="navigateTo",
+    #                 args=["https://www.naver.com"],
+    #                 sender_id="server"
+    #             ).model_dump_json(),
+    #             tab_id="1089126072"
+    #         )  # 비동기 호출
 
-    async def broadcast_loop():
-        i = 0
-        while True:
-            i += 1
-            # await asyncio.sleep(2)  # time.sleep 대신 asyncio.sleep 사용
-            # print("Sending broadcast message")
-            # await manager.send_personal_message(
-            #     MessageModel(
-            #         type="changeBackground",
-            #         args=[""],
-            #         sender_id="server"
-            #     ).model_dump_json(),
-            #     tab_id="1089126072"
-            # )  # 비동기 호출
-
-    # 1089126083
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(asyncio.gather(run_server(), run_mcp(), broadcast_loop()))
+        loop.run_until_complete(asyncio.gather(run_server(), run_mcp()))
     finally:
         loop.close()
 

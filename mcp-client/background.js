@@ -31,6 +31,8 @@ class TabConnection {
           this.reconnectAttempts = 0;
           clearTimeout(this.reconnectTimer);
           console.log(`Tab ${this.tabId}: Connected to server`);
+
+          this.sendState();
           resolve();
         };
 
@@ -78,46 +80,46 @@ class TabConnection {
     const tabId = this.tabId; // Store tabId in local variable to avoid 'this' context issues
     chrome.tabs.sendMessage(tabId, message, () => {
       if (chrome.runtime.lastError) {
-        console.error(`Error sending message to tab ${tabId}:`, chrome.runtime.lastError);
         chrome.scripting.executeScript({
           target: { tabId: tabId },
           files: ['content.js']
         }).then(() => {
-          chrome.tabs.sendMessage(tabId, message, (retryResponse) => {
+          chrome.tabs.sendMessage(tabId, message, () => {
           });
-        }).catch(error => {
-          console.error(`Error injecting content script to tab ${tabId}:`, error);
         });
       }
     });
   }
 
   sendState() {
+    console.log('Sending state to server');
     const tabId = this.tabId;
     const socket = this.socket;
-    chrome.tabs.sendMessage(tabId.id, {
-      type: 'html',
+    chrome.tabs.sendMessage(tabId, {
+      type: 'status',
     }, function(response) {
       if (chrome.runtime.lastError) {
+        console.log('updateState 1');
         chrome.scripting.executeScript({
-          target: { tabId: tabId.id },
+          target: { tabId: tabId },
           files: ['content.js']
         }).then(() => {
           chrome.tabs.sendMessage(tabId, data, function(response) {
             if (response.success) {
               socket.send(JSON.stringify({
                 type: 'updateState',
-                args: [response.result],
+                args: [response.result.url, response.result.html],
               }));
             }
           });
         }).catch(err => {
         });
       } else {
+        console.log('updateState 2 ', response);
         if (response.success) {
           socket.send(JSON.stringify({
             type: 'updateState',
-            args: [response.result],
+            args: [response.result.url, response.result.html],
           }));
         }
       }
@@ -218,26 +220,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
       }
 
-      case 'sendCommand': {
-        const connection = tabConnections.get(tabId);
-        if (connection && connection.socket && connection.socket.readyState === WebSocket.OPEN) {
-          try {
-            connection.socket.send(JSON.stringify({
-              type: message.command,
-              args: message.args || [],
-              tabId: tabId
-            }));
-            sendResponse({ success: true });
-          } catch (error) {
-            console.error(`Error sending command to server for tab ${tabId}:`, error);
-            sendResponse({ success: false, error: error.message });
-          }
-        } else {
-          sendResponse({ success: false, error: 'WebSocket connection not available' });
-        }
-        return true;
-      }
-
       default:
         console.error('Unknown action:', message.action);
         sendResponse({ success: false, error: `Unknown action: ${message.action}` });
@@ -275,18 +257,12 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 // Track tab updates
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete') {
-    console.log('Tab updated:', tabId, tab.url);
-    const connection = tabConnections.get(tabId);
-    if (connection?.isConnected) {
-      connection.updateState();
-    }
-  }
-});
-
-// Track active tabs
-chrome.tabs.onActivated.addListener((activeInfo) => {
-  console.log('Tab activated:', activeInfo.tabId);
-});
-
+// chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+//   if (changeInfo.status === 'complete') {
+//     console.log('Tab updated:', tabId, tab.url);
+//     const connection = tabConnections.get(tabId);
+//     if (connection?.isConnected) {
+//       connection.sendState();
+//     }
+//   }
+// });

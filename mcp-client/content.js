@@ -10,8 +10,11 @@ chrome.runtime.sendMessage({ type: 'getTabId' }, (response) => {
 
 // Command definitions
 const commands = {
-  'html': () => {
-    return document.documentElement.outerHTML || 'No HTML found';
+  'status': () => {
+    return {
+        url: window.location.href || 'No URL available',
+        html: document.documentElement.outerHTML || 'No HTML available',
+    };
   },
   'changeBackground': () => {
     document.body.style.backgroundColor = 'lightblue';

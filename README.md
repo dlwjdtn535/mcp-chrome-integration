@@ -1,6 +1,87 @@
 # MCP (Model Control Protocol)
+[![smithery badge](https://smithery.ai/badge/@dlwjdtn535/mcp-chrome-integration)](https://smithery.ai/server/@dlwjdtn535/mcp-chrome-integration)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow.svg)](https://buymeacoffee.com/dlwjdtn535)
 
 A protocol that enables AI models to control Chrome browser and perform web automation.
+
+## Installation
+
+### Prerequisites
+- Python 3.12
+- Google Chrome browser extension installed (websocket client)
+- uv (Python package installer) or Docker
+
+### Installing via Smithery
+
+```bash
+npx -y @smithery/cli install @dlwjdtn535/mcp-chrome-integration --client claude
+```
+
+### Configuration Setup
+
+Choose one of the following setup methods based on your environment:
+
+#### 1. Using uv (Recommended)
+
+**Windows Setup:**
+```json
+{
+  "mcpServers": {
+    "mcp-chrome-integration": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "%LOCALAPPDATA%\\Programs\\mcp-chrome-integration\\src",
+        "mcp-server"
+      ],
+      "env": {
+        "WEBSOCKET_PORT": "8012"
+      }
+    }
+  }
+}
+```
+
+**macOS Setup:**
+```json
+{
+  "mcpServers": {
+    "mcp-chrome-integration": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/usr/local/bin/mcp-chrome-integration/src",
+        "mcp-server"
+      ],
+      "env": {
+        "WEBSOCKET_PORT": "8012"
+      }
+    }
+  }
+}
+```
+
+**Linux Setup:**
+```json
+{
+  "mcpServers": {
+    "mcp-chrome-integration": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/usr/local/bin/mcp-chrome-integration/src",
+        "mcp-server"
+      ],
+      "env": {
+        "WEBSOCKET_PORT": "8012"
+      }
+    }
+  }
+}
+```
 
 ## Key Features
 

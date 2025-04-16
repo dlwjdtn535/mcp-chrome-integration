@@ -7,7 +7,7 @@ startCommand:
       - port
     properties:
       port:
-        type: string
+        type: integer
         description: port.
   commandFunction:
     |-

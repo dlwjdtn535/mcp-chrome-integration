@@ -107,7 +107,6 @@ function disconnectFromServer() {
 
 // Update the state of the extension based on the server message
 function updateState() {
-  console.log('updateState');
   chrome.tabs.query({active: true, currentWindow: false }, function(tabs) {
     if (!tabs || tabs.length === 0) {
       return;
@@ -122,18 +121,21 @@ function updateState() {
           files: ['content.js']
         }).then(() => {
           chrome.tabs.sendMessage(tabs[0].id, data, function(response) {
+            if (response.success) {
+              socket.send(JSON.stringify({
+                type: 'updateState',
+                args: [response.result],
+              }));
+            }
           });
         }).catch(err => {
         });
       } else {
         if (response.success) {
-          console.log(response.result);
           socket.send(JSON.stringify({
             type: 'updateState',
             args: [response.result],
           }));
-        } else {
-          console.log('Error in response:', response);
         }
       }
     });
@@ -142,33 +144,23 @@ function updateState() {
 
 // Handle incoming WebSocket messages
 function handleServerMessage(data) {
-  console.log('handleServerMessage:', data);
   data = JSON.parse(data);
 
   chrome.tabs.query({ active: true, currentWindow: false }, function(tabs) {
     if (!tabs || tabs.length === 0) {
-      console.log('No active tab found');
       return;
     }
     
-    console.log('Sending message to tab:', tabs[0].id);
     chrome.tabs.sendMessage(tabs[0].id, data, function(response) {
       if (chrome.runtime.lastError) {
-        console.log('Error sending message:', chrome.runtime.lastError.message);
-        // content script가 없는 경우 inject
         chrome.scripting.executeScript({
           target: { tabId: tabs[0].id },
           files: ['content.js']
         }).then(() => {
           chrome.tabs.sendMessage(tabs[0].id, data, function(response) {
-            console.log('Message sent after injection:', response);
           });
         }).catch(err => {
-          console.error('Script injection failed:', err);
         });
-      } else {
-        socket.send(JSON.stringify(data));
-        console.log('Message sent successfully:', response);
       }
     });
   });

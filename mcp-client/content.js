@@ -11,18 +11,35 @@ chrome.runtime.sendMessage({ type: 'getTabId' }, (response) => {
 // Command definitions
 const commands = {
   'status': () => {
-    return {
+    try {
+      return {
         url: window.location.href || 'No URL available',
         html: document.documentElement.outerHTML || 'No HTML available',
-    };
+      };
+    } catch (e) {
+      // chrome:// URL에서의 접근 오류 처리
+      return {
+        url: 'chrome:// URL (access restricted)',
+        html: 'No HTML available (chrome:// URL)',
+      };
+    }
   },
   'changeBackground': () => {
-    document.body.style.backgroundColor = 'lightblue';
-    return 'Background color changed to light blue';
+    try {
+      document.body.style.backgroundColor = 'lightblue';
+      return 'Background color changed to light blue';
+    } catch (e) {
+      return 'Cannot change background on chrome:// URL';
+    }
   },
   'navigateTo': (url) => {
+    console.log('Navigating to', url);
     if (!url) {
       throw new Error('URL is required.');
+    }
+    // chrome:// URL로의 네비게이션 시도 방지
+    if (url.startsWith('chrome://')) {
+      throw new Error('Cannot navigate to chrome:// URLs');
     }
     window.location.href = url;
     return `Navigating to ${url}...`;

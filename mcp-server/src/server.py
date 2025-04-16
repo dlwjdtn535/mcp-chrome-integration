@@ -2,6 +2,12 @@ import asyncio
 import json
 import logging
 import os
+import sys
+import socket
+import time
+
+import psutil
+from pathlib import Path
 from typing import Dict, Any
 
 import uvicorn
@@ -72,6 +78,12 @@ def get_prompt() -> str:
     
     The server uses WebSocket for real-time communication with the Chrome extension
     and provides a robust error handling mechanism for all operations.
+    
+    Important Notes:
+    1. Chrome Security Restrictions:
+       - The extension cannot operate on chrome:// URLs due to Chrome's security restrictions
+       - If you're on a chrome:// page, please navigate to a regular website (http:// or https://)
+       - Recommended starting pages: https://www.google.com or https://www.example.com
     
     Example commands:
     1. Navigate: "tool_navigate_to('https://example.com')"
@@ -353,40 +365,134 @@ async def tool_take_screenshot(selector: str = None, tab_id: str = None) -> Dict
     )
     return {"message": f"Taking screenshot{' of element: ' + selector if selector else ''} in tab {tab_id}"}
 
+def write_pid_file() -> Path:
+    """
+    현재 프로세스의 PID를 파일에 저장합니다.
+    
+    Returns:
+        Path: PID 파일의 경로
+    """
+    pid_dir = Path.home() / ".mcp-server"
+    pid_dir.mkdir(exist_ok=True)
+    
+    pid_file = pid_dir / "server.pid"
+    pid_file.write_text(str(os.getpid()))
+    logger.info(f"PID file written to {pid_file}")
+    return pid_file
+
+def cleanup_pid_file(pid_file: Path) -> None:
+    """
+    PID 파일을 정리합니다.
+    
+    Args:
+        pid_file: 정리할 PID 파일의 경로
+    """
+    try:
+        if pid_file.exists():
+            pid_file.unlink()
+            logger.info(f"PID file removed: {pid_file}")
+    except Exception as e:
+        logger.error(f"Error removing PID file: {e}")
+
+def kill_process_on_port(port: int) -> bool:
+    """
+    주어진 포트를 사용하는 프로세스를 종료합니다.
+    크로스 플랫폼 지원 (Windows, Linux, macOS)
+    
+    Args:
+        port: 종료할 포트 번호
+        
+    Returns:
+        bool: 프로세스 종료 성공 여부
+    """
+    try:
+        for proc in psutil.process_iter(['pid', 'name']):
+            try:
+                connections = proc.net_connections()
+                for conn in connections:
+                    # 포트가 일치하는지 확인
+                    if hasattr(conn, 'laddr') and conn.laddr.port == port:
+                        logger.info(f"Found process using port {port}: {proc.pid} ({proc.name()})")
+                        # 프로세스 종료
+                        proc.terminate()
+                        # 종료 대기
+                        proc.wait(timeout=3)
+                        logger.info(f"Successfully terminated process {proc.pid}")
+                        return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
+                continue
+        return False
+    except Exception as e:
+        logger.error(f"Error while killing process on port {port}: {e}")
+        return False
+
+def is_port_in_use(port: int) -> bool:
+    """
+    포트가 사용 중인지 확인합니다.
+    크로스 플랫폼 지원 (Windows, Linux, macOS)
+    
+    Args:
+        port: 확인할 포트 번호
+        
+    Returns:
+        bool: 포트 사용 여부
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(('localhost', port))
+            return False
+        except socket.error:
+            return True
 
 def main():
-    async def run_server():
-        config = uvicorn.Config(app, host="localhost", port=WEBSOCKET_PORT, log_level="info")
-        server = uvicorn.Server(config)
-        await server.serve()
-
-    async def run_mcp():
-        await mcp.run_stdio_async()
-
-    # async def broadcast_loop():
-    #     i = 0
-    #     while True:
-    #         i += 1
-    #         await asyncio.sleep(5)  # time.sleep 대신 asyncio.sleep 사용
-    #
-    #         print(manager.get_active_tabs())
-    #         print(manager.get_tab_info("1089126072"))
-    #         print("Sending broadcast message")
-    #         await manager.send_personal_message(
-    #             MessageModel(
-    #                 type="navigateTo",
-    #                 args=["https://www.naver.com"],
-    #                 sender_id="server"
-    #             ).model_dump_json(),
-    #             tab_id="1089126072"
-    #         )  # 비동기 호출
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    # Write PID file
+    pid_file = write_pid_file()
+    
     try:
-        loop.run_until_complete(asyncio.gather(run_server(), run_mcp()))
+        # Check and kill any process using the port
+        if is_port_in_use(WEBSOCKET_PORT):
+            logger.info(f"Port {WEBSOCKET_PORT} is in use. Attempting to kill the process...")
+            if kill_process_on_port(WEBSOCKET_PORT):
+                logger.info(f"Successfully killed process using port {WEBSOCKET_PORT}")
+                # 잠시 대기하여 포트가 해제될 때까지 기다림
+                for _ in range(5):
+                    if not is_port_in_use(WEBSOCKET_PORT):
+                        break
+                    asyncio.sleep(1)
+            else:
+                logger.error(f"Failed to kill process using port {WEBSOCKET_PORT}")
+                sys.exit(1)
+
+        async def run_server():
+            config = uvicorn.Config(
+                app,
+                host="localhost",
+                port=WEBSOCKET_PORT,
+                log_level="info",
+                loop="asyncio"
+            )
+            server = uvicorn.Server(config)
+            await server.serve()
+
+        async def run_mcp():
+            await mcp.run_stdio_async()
+
+        async def run_all():
+            await asyncio.gather(run_server(), run_mcp())
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            loop.run_until_complete(run_all())
+        except KeyboardInterrupt:
+            logger.info("Received keyboard interrupt")
+        finally:
+            loop.close()
+            
     finally:
-        loop.close()
+        # Clean up PID file
+        cleanup_pid_file(pid_file)
 
 if __name__ == "__main__":
     main()

@@ -20,6 +20,10 @@
       "js": ["content.js"]
     }
   ],
+  "web_accessible_resources": [{
+    "resources": ["welcome.html"],
+    "matches": ["<all_urls>"]
+  }],
   "permissions": [
     "tabs",
     "activeTab",

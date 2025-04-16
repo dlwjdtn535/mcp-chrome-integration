@@ -5,7 +5,7 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_INTERVAL = 5000; // 5 seconds
 
 class TabConnection {
-  constructor(tabId) {
+  constructor(tabId, serverUrl) {
     this.tabId = tabId;
     this.socket = null;
     this.isConnected = false;
@@ -13,7 +13,7 @@ class TabConnection {
     this.maxReconnectAttempts = 5;
     this.reconnectDelay = 5000;
     this.reconnectTimer = null;
-    this.serverUrl = 'ws://localhost:8012/mcp';
+    this.serverUrl = serverUrl;
   }
 
   connect() {
@@ -99,7 +99,6 @@ class TabConnection {
       type: 'status',
     }, function(response) {
       if (chrome.runtime.lastError) {
-        console.log('updateState 1');
         chrome.scripting.executeScript({
           target: { tabId: tabId },
           files: ['content.js']
@@ -115,7 +114,6 @@ class TabConnection {
         }).catch(err => {
         });
       } else {
-        console.log('updateState 2 ', response);
         if (response.success) {
           socket.send(JSON.stringify({
             type: 'updateState',
@@ -142,7 +140,7 @@ class TabConnection {
 chrome.tabs.onCreated.addListener((tab) => {
   chrome.storage.local.get(['serverUrl'], (result) => {
     if (result.serverUrl && tab.id) {
-      const connection = new TabConnection(tab.id);
+      const connection = new TabConnection(tab.id, result.serverUrl);
       tabConnections.set(tab.id, connection);
       connection.connect();
     }
@@ -169,7 +167,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'contentScriptLoaded') {
     let connection = tabConnections.get(tabId);
     if (!connection) {
-      connection = new TabConnection(tabId);
+      connection = new TabConnection(tabId, message.serverUrl);
       tabConnections.set(tabId, connection);
       connection.connect().catch(error => {
         console.error(`Failed to connect WebSocket for tab ${tabId}:`, error);
@@ -185,7 +183,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'connect': {
         let connection = tabConnections.get(tabId);
         if (!connection) {
-          connection = new TabConnection(tabId);
+          connection = new TabConnection(tabId, message.serverUrl);
           tabConnections.set(tabId, connection);
         }
 

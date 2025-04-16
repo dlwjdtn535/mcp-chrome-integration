@@ -1,126 +1,109 @@
-// Global WebSocket connection
-let socket = null;
-let isConnected = false;
-let reconnectAttempts = 0;
-let reconnectTimer = null;
+// Tab-specific WebSocket connections
+const tabConnections = new Map();
+
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_INTERVAL = 5000; // 5 seconds
 
-// Initialize connection from saved settings
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.get(['serverUrl'], (result) => {
-    if (result.serverUrl) {
-      connectToServer(result.serverUrl);
-    }
-  });
-});
-
-// Handle messages from popup or content scripts
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  switch (message.action) {
-    case 'connect':
-      connectToServer(message.serverUrl)
-        .then(() => sendResponse({ success: true }))
-        .catch(error => sendResponse({ success: false, error: error.message }));
-      return true; // Keep the message channel open for async response
-
-    case 'disconnect':
-      disconnectFromServer()
-        .then(() => sendResponse({ success: true }))
-        .catch(error => sendResponse({ success: false, error: error.message }));
-      return true;
-
-    case 'checkConnection':
-      sendResponse({ isConnected: isConnected });
-      return false;
+class TabConnection {
+  constructor(tabId) {
+    this.tabId = tabId;
+    this.socket = null;
+    this.isConnected = false;
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 5;
+    this.reconnectDelay = 5000;
+    this.reconnectTimer = null;
+    this.serverUrl = 'ws://localhost:8012/mcp';
   }
-});
 
-// Connect to WebSocket server
-function connectToServer(serverUrl) {
-  return new Promise((resolve, reject) => {
-    if (isConnected) {
-      disconnectFromServer();
-    }
-
-    try {
-      socket = new WebSocket(serverUrl);
-
-      socket.onopen = () => {
-        isConnected = true;
-        reconnectAttempts = 0;
-        clearTimeout(reconnectTimer);
-        console.log('Connected to server');
-        resolve();
-      };
-
-      socket.onclose = (event) => {
-        isConnected = false;
-        socket = null;
-        console.log('Disconnected:', event.reason || 'Connection closed');
-
-        // Try to reconnect if not manually disconnected
-        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-          reconnectAttempts++;
-          reconnectTimer = setTimeout(() => {
-            chrome.storage.local.get(['serverUrl'], (result) => {
-              if (result.serverUrl) {
-                connectToServer(result.serverUrl);
-              }
-            });
-          }, RECONNECT_INTERVAL);
-        }
-      };
-
-      socket.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        reject(new Error('WebSocket connection error'));
-      };
-
-      socket.onmessage = (event) => {
-        handleServerMessage(event.data);
-        updateState();
-      };
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
-
-// Disconnect from WebSocket server
-function disconnectFromServer() {
-  return new Promise((resolve, reject) => {
-    try {
-      if (socket) {
-        reconnectAttempts = MAX_RECONNECT_ATTEMPTS;
-        clearTimeout(reconnectTimer);
-        socket.close(1000, 'Manually disconnected');
-        isConnected = false;
-        socket = null;
+  connect() {
+    return new Promise((resolve, reject) => {
+      if (this.isConnected) {
+        this.disconnect();
       }
-      resolve();
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
 
-// Update the state of the extension based on the server message
-function updateState() {
-  chrome.tabs.query({active: true, currentWindow: false }, function(tabs) {
-    if (!tabs || tabs.length === 0) {
-      return;
-    }
+      try {
+        const wsUrl = `${this.serverUrl}/${this.tabId}`;
+        this.socket = new WebSocket(wsUrl);
 
-    chrome.tabs.sendMessage(tabs[0].id, {
+        this.socket.onopen = () => {
+          this.isConnected = true;
+          this.reconnectAttempts = 0;
+          clearTimeout(this.reconnectTimer);
+          console.log(`Tab ${this.tabId}: Connected to server`);
+          resolve();
+        };
+
+        this.socket.onclose = () => {
+          this.isConnected = false;
+          this.socket = null;
+          console.log(`Tab ${this.tabId}: Disconnected from server`);
+          this.attemptReconnect();
+        };
+
+        this.socket.onerror = (error) => {
+          console.error(`Tab ${this.tabId}: WebSocket error:`, error);
+          this.isConnected = false;
+          this.socket = null;
+          reject(error);
+        };
+
+        this.socket.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            this.handleCommand(message);
+            this.sendState();
+          } catch (error) {
+            console.error(`Tab ${this.tabId}: Error parsing message:`, error);
+          }
+        };
+      } catch (error) {
+        console.error(`Tab ${this.tabId}: Connection error:`, error);
+        reject(error);
+      }
+    });
+  }
+
+  disconnect() {
+    if (this.socket) {
+      this.reconnectAttempts = this.maxReconnectAttempts;
+      clearTimeout(this.reconnectTimer);
+      this.socket.close(1000, 'Manually disconnected');
+      this.isConnected = false;
+      this.socket = null;
+    }
+  }
+
+  handleCommand(message) {
+    const tabId = this.tabId; // Store tabId in local variable to avoid 'this' context issues
+    chrome.tabs.sendMessage(tabId, message, () => {
+      if (chrome.runtime.lastError) {
+        console.error(`Error sending message to tab ${tabId}:`, chrome.runtime.lastError);
+        chrome.scripting.executeScript({
+          target: { tabId: tabId },
+          files: ['content.js']
+        }).then(() => {
+          chrome.tabs.sendMessage(tabId, message, (retryResponse) => {
+          });
+        }).catch(error => {
+          console.error(`Error injecting content script to tab ${tabId}:`, error);
+        });
+      }
+    });
+  }
+
+  sendState() {
+    const tabId = this.tabId;
+    const socket = this.socket;
+    chrome.tabs.sendMessage(tabId.id, {
       type: 'html',
     }, function(response) {
       if (chrome.runtime.lastError) {
         chrome.scripting.executeScript({
-          target: { tabId: tabs[0].id },
+          target: { tabId: tabId.id },
           files: ['content.js']
         }).then(() => {
-          chrome.tabs.sendMessage(tabs[0].id, data, function(response) {
+          chrome.tabs.sendMessage(tabId, data, function(response) {
             if (response.success) {
               socket.send(JSON.stringify({
                 type: 'updateState',
@@ -139,30 +122,171 @@ function updateState() {
         }
       }
     });
-  });
-}
+  }
 
-// Handle incoming WebSocket messages
-function handleServerMessage(data) {
-  data = JSON.parse(data);
-
-  chrome.tabs.query({ active: true, currentWindow: false }, function(tabs) {
-    if (!tabs || tabs.length === 0) {
-      return;
-    }
-    
-    chrome.tabs.sendMessage(tabs[0].id, data, function(response) {
-      if (chrome.runtime.lastError) {
-        chrome.scripting.executeScript({
-          target: { tabId: tabs[0].id },
-          files: ['content.js']
-        }).then(() => {
-          chrome.tabs.sendMessage(tabs[0].id, data, function(response) {
-          });
-        }).catch(err => {
+  attemptReconnect() {
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      this.reconnectAttempts++;
+      this.reconnectTimer = setTimeout(() => {
+        this.connect().catch(error => {
+          console.error(`Failed to reconnect WebSocket for tab ${this.tabId}:`, error);
         });
-      }
-    });
-  });
+      }, this.reconnectDelay);
+    }
+  }
 }
+
+// Initialize connection from saved settings for new tabs
+chrome.tabs.onCreated.addListener((tab) => {
+  chrome.storage.local.get(['serverUrl'], (result) => {
+    if (result.serverUrl && tab.id) {
+      const connection = new TabConnection(tab.id);
+      tabConnections.set(tab.id, connection);
+      connection.connect();
+    }
+  });
+});
+
+// Handle messages from content scripts and popup
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // For content script messages, use sender.tab.id
+  // For popup messages, use message.tabId
+  const tabId = sender.tab?.id || message.tabId;
+
+  if (!tabId) {
+    console.error('No tab ID available');
+    sendResponse({ success: false, error: 'No tab ID available' });
+    return true;
+  }
+
+  if (message.type === 'getTabId') {
+    sendResponse({ tabId: tabId });
+    return true;
+  }
+
+  if (message.type === 'contentScriptLoaded') {
+    let connection = tabConnections.get(tabId);
+    if (!connection) {
+      connection = new TabConnection(tabId);
+      tabConnections.set(tabId, connection);
+      connection.connect().catch(error => {
+        console.error(`Failed to connect WebSocket for tab ${tabId}:`, error);
+      });
+    }
+    sendResponse({ success: true });
+    return true;
+  }
+
+  // Handle popup actions
+  if (message.action) {
+    switch (message.action) {
+      case 'connect': {
+        let connection = tabConnections.get(tabId);
+        if (!connection) {
+          connection = new TabConnection(tabId);
+          tabConnections.set(tabId, connection);
+        }
+
+        connection.connect()
+          .then(() => {
+            chrome.storage.local.set({ serverUrl: message.serverUrl });
+            sendResponse({ success: true });
+          })
+          .catch(error => {
+            console.error('Connection error:', error);
+            sendResponse({ success: false, error: error.message });
+          });
+        return true;
+      }
+
+      case 'disconnect': {
+        const connection = tabConnections.get(tabId);
+        if (connection) {
+          connection.disconnect();
+          tabConnections.delete(tabId);
+        }
+        sendResponse({ success: true });
+        return true;
+      }
+
+      case 'checkConnection': {
+        const connection = tabConnections.get(tabId);
+        sendResponse({ 
+          success: true, 
+          isConnected: connection?.isConnected || false 
+        });
+        return true;
+      }
+
+      case 'sendCommand': {
+        const connection = tabConnections.get(tabId);
+        if (connection && connection.socket && connection.socket.readyState === WebSocket.OPEN) {
+          try {
+            connection.socket.send(JSON.stringify({
+              type: message.command,
+              args: message.args || [],
+              tabId: tabId
+            }));
+            sendResponse({ success: true });
+          } catch (error) {
+            console.error(`Error sending command to server for tab ${tabId}:`, error);
+            sendResponse({ success: false, error: error.message });
+          }
+        } else {
+          sendResponse({ success: false, error: 'WebSocket connection not available' });
+        }
+        return true;
+      }
+
+      default:
+        console.error('Unknown action:', message.action);
+        sendResponse({ success: false, error: `Unknown action: ${message.action}` });
+        return true;
+    }
+  }
+
+  // Forward other messages to the appropriate tab connection
+  const connection = tabConnections.get(tabId);
+  if (connection && connection.socket && connection.socket.readyState === WebSocket.OPEN) {
+    try {
+      connection.socket.send(JSON.stringify({
+        ...message,
+        tabId: tabId
+      }));
+      sendResponse({ success: true });
+    } catch (error) {
+      console.error(`Error forwarding message to server for tab ${tabId}:`, error);
+      sendResponse({ success: false, error: error.message });
+    }
+    return true;
+  } else {
+    sendResponse({ success: false, error: 'WebSocket connection not available' });
+    return true;
+  }
+});
+
+// Clean up connections when tabs are closed
+chrome.tabs.onRemoved.addListener((tabId) => {
+  const connection = tabConnections.get(tabId);
+  if (connection) {
+    connection.disconnect();
+    tabConnections.delete(tabId);
+  }
+});
+
+// Track tab updates
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete') {
+    console.log('Tab updated:', tabId, tab.url);
+    const connection = tabConnections.get(tabId);
+    if (connection?.isConnected) {
+      connection.updateState();
+    }
+  }
+});
+
+// Track active tabs
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  console.log('Tab activated:', activeInfo.tabId);
+});
 

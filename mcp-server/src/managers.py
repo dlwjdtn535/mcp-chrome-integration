@@ -7,7 +7,10 @@ logger = logging.getLogger(__name__)
 class ConnectionManager:
     """Modern WebSocket connection manager"""
     def __init__(self):
-        self.active_connections: Dict[str, WebSocket] = {}
+        # Dictionary to store WebSocket connections by tab ID
+        self.connections: Dict[str, WebSocket] = {}
+        # Dictionary to store tab information
+        self.tab_info: Dict[str, dict] = {}
         self.connection_groups: Dict[str, Set[str]] = {}
         self._connection_counter = 0
 
@@ -16,57 +19,46 @@ class ConnectionManager:
         self._connection_counter += 1
         return f"client_{self._connection_counter}"
 
-    async def connect(self, websocket: WebSocket) -> str:
-        """Accept and store a new WebSocket connection"""
+    async def connect(self, websocket: WebSocket, tab_id: str) -> str:
+        """Connect a new WebSocket client for a specific tab"""
         await websocket.accept()
-        client_id = self._generate_client_id()
-        self.active_connections[client_id] = websocket
-        logger.info(f"Client connected: {client_id}")
-        return client_id
+        self.connections[tab_id] = websocket
+        logger.info(f"New connection established for tab {tab_id}")
+        return tab_id
 
-    def disconnect(self, client_id: str) -> None:
-        """Remove a WebSocket connection"""
-        if client_id in self.active_connections:
-            del self.active_connections[client_id]
+    def disconnect(self, tab_id: str):
+        """Disconnect a WebSocket client for a specific tab"""
+        if tab_id in self.connections:
+            del self.connections[tab_id]
+            logger.info(f"Connection closed for tab {tab_id}")
+        if tab_id in self.tab_info:
+            del self.tab_info[tab_id]
             # Remove from all groups
             for group in self.connection_groups.values():
-                group.discard(client_id)
-            logger.info(f"Client disconnected: {client_id}")
+                group.discard(tab_id)
 
-    async def send_personal_message(self, message: str, client_id: str) -> bool:
-        """Send a message to a specific client"""
-        if client_id not in self.active_connections:
-            logger.warning(f"Client {client_id} not found")
-            return False
+    async def send_personal_message(self, message: str, tab_id: str):
+        """Send a message to a specific tab"""
+        if tab_id in self.connections:
+            await self.connections[tab_id].send_text(message)
+            
+    async def broadcast(self, message: str, exclude: Optional[str] = None):
+        """Broadcast a message to all connected tabs except the excluded one"""
+        for tab_id, connection in self.connections.items():
+            if tab_id != exclude:
+                await connection.send_text(message)
+                
+    def update_tab_info(self, tab_id: str, info: dict):
+        """Update information for a specific tab"""
+        self.tab_info[tab_id] = info
         
-        try:
-            websocket = self.active_connections[client_id]
-            await websocket.send_text(message)
-            logger.info(f"Message sent to {client_id}: {message}")
-            return True
-        except Exception as e:
-            logger.error(f"Error sending message to {client_id}: {str(e)}")
-            return False
-
-    async def broadcast(self, message: str, exclude: Optional[str] = None) -> None:
-        """Broadcast a message to all connected clients"""
-        disconnected_clients = set()
+    def get_tab_info(self, tab_id: str) -> Optional[dict]:
+        """Get information for a specific tab"""
+        return self.tab_info.get(tab_id)
         
-        for client_id, websocket in self.active_connections.items():
-            if client_id != exclude:
-                try:
-                    await websocket.send_text(message)
-                except WebSocketDisconnect:
-                    disconnected_clients.add(client_id)
-                except Exception as e:
-                    logger.error(f"Error broadcasting to {client_id}: {str(e)}")
-                    disconnected_clients.add(client_id)
-        
-        # Clean up disconnected clients
-        for client_id in disconnected_clients:
-            self.disconnect(client_id)
-        
-        logger.info(f"Broadcast message sent: {message}")
+    def get_active_tabs(self) -> Set[str]:
+        """Get all active tab IDs"""
+        return set(self.connections.keys())
 
     async def broadcast_to_group(self, group_name: str, message: str, exclude: Optional[str] = None) -> None:
         """Broadcast a message to a specific group"""
@@ -75,7 +67,7 @@ class ConnectionManager:
             return
 
         for client_id in self.connection_groups[group_name]:
-            if client_id != exclude and client_id in self.active_connections:
+            if client_id != exclude and client_id in self.connections:
                 await self.send_personal_message(message, client_id)
 
     def add_to_group(self, group_name: str, client_id: str) -> None:

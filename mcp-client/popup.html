@@ -2,82 +2,59 @@
 <html>
 <head>
   <title>MCP Client</title>
-  <meta http-equiv="Content-Security-Policy" content="script-src 'self' unsafe-eval;">
   <style>
     body {
       width: 300px;
       padding: 10px;
       font-family: Arial, sans-serif;
     }
+    .container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .input-group {
+      display: flex;
+      gap: 5px;
+    }
+    #serverUrl {
+      flex-grow: 1;
+    }
     .status {
       padding: 5px;
-      margin-bottom: 10px;
-      border-radius: 4px;
+      border-radius: 3px;
+      text-align: center;
     }
     .connected {
-      background-color: #d4edda;
-      color: #155724;
+      background-color: #90EE90;
+      color: #006400;
     }
     .disconnected {
-      background-color: #f8d7da;
-      color: #721c24;
+      background-color: #FFB6C1;
+      color: #8B0000;
     }
-    button {
-      width: 100%;
-      padding: 8px;
-      margin-top: 5px;
-      cursor: pointer;
-    }
-    input, textarea {
-      width: 100%;
-      padding: 8px;
-      margin-bottom: 10px;
-      box-sizing: border-box;
-    }
-    textarea {
-      height: 100px;
+    #logContainer {
+      height: 150px;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      padding: 5px;
       font-family: monospace;
-      resize: vertical;
-    }
-    .commands {
-      margin: 10px 0;
-      padding: 8px;
-      background-color: #f8f9fa;
-      border-radius: 4px;
       font-size: 12px;
     }
-    .commands code {
-      display: block;
-      margin: 4px 0;
-      color: #0366d6;
-    }
-    .command-desc {
-      color: #666;
-      margin-left: 10px;
-      font-size: 11px;
-      display: block;
-      margin-bottom: 8px;
+    #logContainer div {
+      margin: 2px 0;
     }
   </style>
 </head>
 <body>
-  <h2>MCP Client</h2>
-  <div id="connectionStatus" class="status disconnected">Disconnected</div>
-  
-  <div>
-    <label for="serverUrl">Server URL:</label>
-    <input type="text" id="serverUrl" value="ws://localhost:8080" />
-  </div>
-  
-  <button id="connectBtn">Connect</button>
-  <button id="disconnectBtn" disabled>Disconnect</button>
-
-  <div style="margin-top: 15px;">
-    <h3>Status Log</h3>
-    <div id="logContainer" style="max-height: 150px; overflow-y: auto; border: 1px solid #ccc; padding: 5px;">
+  <div class="container">
+    <div class="input-group">
+      <input type="text" id="serverUrl" placeholder="WebSocket Server URL" value="ws://localhost:8012/mcp">
+      <button id="connectBtn">Connect</button>
     </div>
+    <div id="connectionStatus" class="status disconnected">Disconnected</div>
+    <div id="logContainer"></div>
   </div>
-  
   <script src="popup.js"></script>
 </body>
 </html>

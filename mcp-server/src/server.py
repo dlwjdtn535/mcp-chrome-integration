@@ -9,6 +9,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from mcp.server import FastMCP
 import threading
 from typing import Dict, Any, Optional
+from datetime import datetime
 
 from models import MessageModel
 from managers import ConnectionManager
@@ -82,190 +83,279 @@ def get_prompt() -> str:
     """
     return get_prompt.__doc__
 
-@app.websocket("/mcp")
-async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint handler"""
-    global client_id
-    global state
-
-    client_id = await manager.connect(websocket)
-
+@app.websocket("/mcp/{tab_id}")
+async def websocket_endpoint(websocket: WebSocket, tab_id: str):
+    """WebSocket endpoint handler with tab_id as path variable"""
     try:
-        # Send initial connection confirmation
+        # Connect to the WebSocket
+        await manager.connect(websocket, tab_id)
+        
+        # Send connection confirmation
         welcome_msg = MessageModel(
             type="system",
-            args=["Connected successfully. Your client ID is: {client_id}"],
+            args=[f"Connected successfully. Tab ID: {tab_id}"],
             sender_id="server"
         )
-        await manager.send_personal_message(welcome_msg.json(), client_id)
-
+        await manager.send_personal_message(welcome_msg.model_dump_json(), tab_id)
+        
+        # Update tab information
+        manager.update_tab_info(tab_id, {
+            "url": websocket.url.path,
+            "connected_at": datetime.now().isoformat(),
+            "content": None
+        })
+        
+        # Keep the connection alive
         while True:
             try:
                 # Receive and parse message
                 data = await websocket.receive_text()
                 message = MessageModel.model_validate_json(data)
-                logger.info(f"Received message from {client_id}: {message}")
+                logger.info(f"Received message from {tab_id}: {message}")
 
                 # Handle different message types
                 if message.type == "updateState":
                     # Handle state update
                     if (message.args and isinstance(message.args, list) and len(message.args) > 0):
-                        state = message.args[0]
+                        manager.update_tab_info(tab_id, {
+                            "url": websocket.url.path,
+                            "connected_at": datetime.now().isoformat(),
+                            "content": message.args[0]
+                        })
 
             except json.JSONDecodeError:
-                logger.warning(f"Invalid message format from {client_id}")
+                logger.warning(f"Invalid message format from {tab_id}")
                 error_msg = MessageModel(
                     type="error",
                     args=["Invalid message format. Please send valid JSON."],
                     sender_id="server"
                 )
-                await manager.send_personal_message(error_msg.json(), client_id)
+                await manager.send_personal_message(error_msg.model_dump_json(), tab_id)
                 continue
 
     except WebSocketDisconnect:
-        manager.disconnect(client_id)
-        await manager.broadcast(
-            MessageModel(
-                type="system",
-                args=[f"Client {client_id} left the chat"],
-                sender_id="server"
-            ).json()
-        )
+        await manager.disconnect(tab_id)
     except Exception as e:
-        logger.error(f"Error in websocket connection {client_id}: {str(e)}")
-        manager.disconnect(client_id)
+        print(f"Error in WebSocket connection: {e}")
+        await manager.disconnect(tab_id)
+
 
 @mcp.tool()
-def tool_state() -> str:
-    """Get the current page state including HTML"""
-    return state
+def tool_tab_list() -> Dict[str, Any]:
+    """Get a list of all connected tabs
+
+    Returns:
+        Dict containing a list of active tabs
+    """
+    return {"tabs": list(manager.get_active_tabs())}
+
 
 @mcp.tool()
-async def tool_change_background(color: str = "lightblue") -> str:
-    """Change the background color of the page"""
-    await manager.broadcast(
+async def tool_state(tab_id: str = None) -> Dict[str, Any]:
+    """Get the current state of a specific tab.
+    
+    Args:
+        tab_id: ID of the target tab
+        
+    Returns:
+        Dict containing the current state
+    """
+    if not tab_id:
+        return {"error": "Tab ID is required"}
+    
+    return manager.get_tab_info(tab_id)
+
+@mcp.tool()
+async def tool_change_background(color: str = "lightblue", tab_id: str = None) -> str:
+    """Change the background color of the page for a specific tab"""
+    if not tab_id:
+        return "Error: Tab ID is required"
+    
+    await manager.send_personal_message(
         MessageModel(
             type="changeBackground",
             args=[color],
             sender_id="server"
-        ).json(),
-        exclude=None
+        ).model_dump_json(),
+        tab_id
     )
-    return f"Background color change request sent: {color}"
+    return f"Background color change request sent to tab {tab_id}: {color}"
 
 @mcp.tool()
-async def tool_navigate_to(url: str) -> str:
-    """Navigate to a specified URL"""
+async def tool_navigate_to(url: str, tab_id: str = None) -> str:
+    """Navigate to a specified URL for a specific tab"""
     if not url:
         return "Error: URL is required"
+    if not tab_id:
+        return "Error: Tab ID is required"
     
-    await manager.broadcast(
+    await manager.send_personal_message(
         MessageModel(
             type="navigateTo",
             args=[url],
             sender_id="server"
-        ).json(),
-        exclude=None
+        ).model_dump_json(),
+        tab_id
     )
-    return f"Navigation request sent: {url}"
+    return f"Navigation request sent to tab {tab_id}: {url}"
 
 @mcp.tool()
-async def tool_click_element(selector: str) -> str:
-    """Click an element on the page"""
+async def tool_click_element(selector: str, tab_id: str = None) -> str:
+    """Click an element on the page for a specific tab"""
     if not selector:
         return "Error: Selector is required"
+    if not tab_id:
+        return "Error: Tab ID is required"
     
-    await manager.broadcast(
+    await manager.send_personal_message(
         MessageModel(
             type="clickElement",
             args=[selector],
             sender_id="server"
-        ).json(),
-        exclude=None
+        ).model_dump_json(),
+        tab_id
     )
-    return f"Click request sent for selector: {selector}"
+    return f"Click request sent to tab {tab_id} for selector: {selector}"
 
 @mcp.tool()
-async def tool_type_text(selector: str, text: str) -> str:
-    """Type text into an input element"""
+async def tool_type_text(selector: str, text: str, tab_id: str = None) -> str:
+    """Type text into an input element for a specific tab"""
     if not selector or not text:
         return "Error: Both selector and text are required"
+    if not tab_id:
+        return "Error: Tab ID is required"
     
-    await manager.broadcast(
+    await manager.send_personal_message(
         MessageModel(
             type="typeText",
             args=[selector, text],
             sender_id="server"
-        ).json(),
-        exclude=None
+        ).model_dump_json(),
+        tab_id
     )
-    return f"Type text request sent: {text} into {selector}"
+    return f"Type text request sent to tab {tab_id}: {text} into {selector}"
 
 @mcp.tool()
-def tool_get_element_info(selector: str) -> Dict[str, Any]:
-    """Get detailed information about an element on the page.
+async def tool_get_element_info(selector: str, tab_id: str = None) -> Dict[str, Any]:
+    """Get detailed information about an element on the page for a specific tab.
     
     Args:
         selector: CSS selector to find the element
+        tab_id: ID of the target tab
         
     Returns:
         Dict containing element information including dimensions, styles, and visibility
     """
-    manager.broadcast(MessageModel(type="getElementInfo", args=[selector]))
-    return {"message": f"Getting element info for selector: {selector}"}
+    if not tab_id:
+        return {"error": "Tab ID is required"}
+    
+    await manager.send_personal_message(
+        MessageModel(
+            type="getElementInfo",
+            args=[selector],
+            sender_id="server"
+        ).model_dump_json(),
+        tab_id
+    )
+    return {"message": f"Getting element info for selector: {selector} in tab {tab_id}"}
 
 @mcp.tool()
-def tool_wait_for_element(selector: str, timeout: int = 5000) -> Dict[str, Any]:
-    """Wait for an element to appear on the page.
+async def tool_wait_for_element(selector: str, timeout: int = 5000, tab_id: str = None) -> Dict[str, Any]:
+    """Wait for an element to appear on the page for a specific tab.
     
     Args:
         selector: CSS selector to wait for
         timeout: Maximum time to wait in milliseconds (default: 5000)
+        tab_id: ID of the target tab
         
     Returns:
         Dict indicating whether element was found and time elapsed
     """
-    manager.broadcast(MessageModel(type="waitForElement", args=[selector, timeout]))
-    return {"message": f"Waiting for element: {selector} (timeout: {timeout}ms)"}
+    if not tab_id:
+        return {"error": "Tab ID is required"}
+    
+    await manager.send_personal_message(
+        MessageModel(
+            type="waitForElement",
+            args=[selector, timeout],
+            sender_id="server"
+        ).model_dump_json(),
+        tab_id
+    )
+    return {"message": f"Waiting for element: {selector} in tab {tab_id} (timeout: {timeout}ms)"}
 
 @mcp.tool()
-def tool_fill_form(form_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Fill a form with provided data.
+async def tool_fill_form(form_data: Dict[str, Any], tab_id: str = None) -> Dict[str, Any]:
+    """Fill a form with provided data for a specific tab.
     
     Args:
         form_data: Dictionary mapping selectors to values
+        tab_id: ID of the target tab
         
     Returns:
         Dict containing results of form filling operation
     """
-    manager.broadcast(MessageModel(type="fillForm", args=[form_data]))
-    return {"message": "Filling form with provided data"}
+    if not tab_id:
+        return {"error": "Tab ID is required"}
+    
+    await manager.send_personal_message(
+        MessageModel(
+            type="fillForm",
+            args=[form_data],
+            sender_id="server"
+        ).model_dump_json(),
+        tab_id
+    )
+    return {"message": f"Form fill request sent to tab {tab_id}"}
 
 @mcp.tool()
-def tool_extract_table(selector: str) -> Dict[str, Any]:
-    """Extract data from a table element.
+async def tool_extract_table(selector: str, tab_id: str = None) -> Dict[str, Any]:
+    """Extract data from a table element for a specific tab.
     
     Args:
         selector: CSS selector for the table
+        tab_id: ID of the target tab
         
     Returns:
         Dict containing table headers and rows
     """
-    manager.broadcast(MessageModel(type="extractTable", args=[selector]))
-    return {"message": f"Extracting table data from selector: {selector}"}
+    if not tab_id:
+        return {"error": "Tab ID is required"}
+    
+    await manager.send_personal_message(
+        MessageModel(
+            type="extractTable",
+            args=[selector],
+            sender_id="server"
+        ).model_dump_json(),
+        tab_id
+    )
+    return {"message": f"Extracting table data from selector: {selector} in tab {tab_id}"}
 
 @mcp.tool()
-def tool_take_screenshot(selector: Optional[str] = None) -> Dict[str, Any]:
-    """Take a screenshot of the page or specific element.
+async def tool_take_screenshot(selector: str = None, tab_id: str = None) -> Dict[str, Any]:
+    """Take a screenshot of the page or specific element for a specific tab.
     
     Args:
         selector: Optional CSS selector for specific element
+        tab_id: ID of the target tab
         
     Returns:
         Dict containing screenshot information
     """
-    manager.broadcast(MessageModel(type="takeScreenshot", args=[selector] if selector else []))
-    return {"message": f"Taking screenshot{' of element: ' + selector if selector else ''}"}
+    if not tab_id:
+        return {"error": "Tab ID is required"}
+    
+    await manager.send_personal_message(
+        MessageModel(
+            type="takeScreenshot",
+            args=[selector] if selector else [],
+            sender_id="server"
+        ).model_dump_json(),
+        tab_id
+    )
+    return {"message": f"Taking screenshot{' of element: ' + selector if selector else ''} in tab {tab_id}"}
+
 
 def main():
     async def run_server():
@@ -276,10 +366,27 @@ def main():
     async def run_mcp():
         await mcp.run_stdio_async()
 
+
+    async def broadcast_loop():
+        i = 0
+        while True:
+            i += 1
+            # await asyncio.sleep(2)  # time.sleep 대신 asyncio.sleep 사용
+            # print("Sending broadcast message")
+            # await manager.send_personal_message(
+            #     MessageModel(
+            #         type="changeBackground",
+            #         args=[""],
+            #         sender_id="server"
+            #     ).model_dump_json(),
+            #     tab_id="1089126072"
+            # )  # 비동기 호출
+
+    # 1089126083
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(asyncio.gather(run_server(), run_mcp()))
+        loop.run_until_complete(asyncio.gather(run_server(), run_mcp(), broadcast_loop()))
     finally:
         loop.close()
 

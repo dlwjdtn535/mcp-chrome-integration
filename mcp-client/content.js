@@ -14,6 +14,10 @@ const commands = {
       };
     }
   },
+  'reload': () => {
+    window.location.reload();
+    return 'reload page';
+  },
   'changeBackground': () => {
     try {
       document.body.style.backgroundColor = 'lightblue';

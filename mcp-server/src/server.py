@@ -64,6 +64,7 @@ def get_prompt() -> str:
        - Get image information
        - Analyze forms
        - Stream page content
+       - Monitor page status and URL changes in real-time
     
     4. Browser Features:
        - Manage bookmarks
@@ -92,17 +93,14 @@ def get_prompt() -> str:
     3. Type text:
        tool_type_text(selector="#search", text="query", tab_id="your_tab_id")
     
-    4. Get page state:
-       tool_state(tab_id="your_tab_id")
-    
-    5. Execute JavaScript:
+    4. Execute JavaScript:
        tool_execute_script(script="console.log('Hello')", tab_id="your_tab_id")
     
     6. Extract table data:
        tool_extract_table(selector=".data-table", tab_id="your_tab_id")
     
-    7. Get element info:
-       tool_get_element_info(selector=".my-element", tab_id="your_tab_id")
+    7. Monitor page status:
+       resource://{tab_id} - Returns current URL and HTML content of the page
     
     Important Notes:
     1. Chrome Security Restrictions:
@@ -115,6 +113,7 @@ def get_prompt() -> str:
        - Always provide tab_id for operations
        - Use tool_tab_list() to get available tabs
        - Check tab state before operations
+       - Use resource://{tab_id} to monitor page status in real-time
     
     3. Error Handling:
        - Check return values for success/error status
@@ -187,63 +186,86 @@ def tool_tab_list() -> Dict[str, Any]:
     return {"tabs": list(manager.get_active_tabs())}
 
 
-@mcp.tool()
-def tool_state(tab_id: str = None) -> Dict[str, Any]:
-    """Get the current state of a specific tab.
+@mcp.resource("resource://{tab_id}")
+def mcp_status(tab_id) -> Dict[str, Any]:
+    """Get the current state of a specific tab including URL and HTML content.
+    
+    This resource provides real-time access to the current state of a browser tab,
+    allowing you to monitor URL changes and page content. It's particularly useful
+    for tracking navigation events, form submissions, and dynamic content updates.
     
     Args:
-        tab_id: ID of the target tab
+        tab_id: ID of the target tab to monitor
         
     Returns:
-        Dict containing basic state information without HTML content
+        Dict containing:
+            - url: Current URL of the page (or None if not available)
+            - content: Current HTML content of the page (or None if not available)
+            - error: Error message if the tab is not found or not connected
+    
+    Example Usage:
+        To monitor a specific tab's status:
+        resource://tab_123
+        
+        This will return:
+        {
+            "url": "https://example.com",
+            "content": "<html>...</html>"
+        }
+        
+        Or if the tab is not found:
+        {
+            "error": "Tab with ID tab_123 not found or not connected",
+            "url": None,
+            "content": None
+        }
+    
+    Notes:
+        - This resource updates in real-time as the page changes
+        - The HTML content may be large for complex pages
+        - Use this resource to detect navigation events and page updates
+        - Combine with other tools to build automated workflows
     """
     if not tab_id:
         return {"error": "Tab ID is required"}
     
     tab_info = manager.get_tab_info(tab_id)
+    
+    # 탭 정보가 없는 경우 처리
+    if tab_info is None:
+        return {
+            "error": f"Tab with ID {tab_id} not found or not connected",
+            "url": None,
+            "content": None
+        }
+    
     # HTML 컨텐츠를 제외한 기본 정보만 반환
     return {
         "url": tab_info.get("url"),
-        "has_content": bool(tab_info.get("content")),
-        "content_size": len(tab_info.get("content", "")) if tab_info.get("content") else 0
+        "content": tab_info.get("content"),
     }
 
-@mcp.tool()
-async def tool_stream_content(tab_id: str = None, chunk_size: int = 10000, chunk_number: int = 1) -> Dict[str, Any]:
-    """Get a specific chunk of HTML content from a tab.
+@mcp.resource("resource://system_info")
+def system_info_resource() -> Dict[str, Any]:
+    """Get system information about the server.
     
-    Args:
-        tab_id: ID of the target tab
-        chunk_size: Size of each chunk in characters
-        chunk_number: The chunk number to retrieve (starting from 1)
-        
     Returns:
-        Dict containing chunk information and data
+        Dict containing system information including CPU usage, memory usage, and uptime
     """
-    if not tab_id:
-        return {"error": "Tab ID is required"}
-
-    tab_info = manager.get_tab_info(tab_id)
-    content = tab_info.get("content", "")
-    
-    if not content:
-        return {"error": "No content available"}
-
-    total_chunks = (len(content) + chunk_size - 1) // chunk_size
-    
-    if chunk_number < 1 or chunk_number > total_chunks:
-        return {"error": f"Invalid chunk number. Must be between 1 and {total_chunks}"}
-    
-    start_idx = (chunk_number - 1) * chunk_size
-    end_idx = min(start_idx + chunk_size, len(content))
-    chunk = content[start_idx:end_idx]
+    cpu_percent = psutil.cpu_percent(interval=0.1)
+    memory = psutil.virtual_memory()
+    disk = psutil.disk_usage('/')
+    boot_time = psutil.boot_time()
+    uptime = time.time() - boot_time
     
     return {
-        "chunk_number": chunk_number,
-        "total_chunks": total_chunks,
-        "chunk_size": len(chunk),
-        "content": chunk,
-        "is_last": chunk_number == total_chunks
+        "cpu_usage": f"{cpu_percent}%",
+        "memory_usage": f"{memory.percent}%",
+        "memory_available": f"{memory.available / (1024 * 1024 * 1024):.2f} GB",
+        "disk_usage": f"{disk.percent}%",
+        "disk_free": f"{disk.free / (1024 * 1024 * 1024):.2f} GB",
+        "uptime_seconds": int(uptime),
+        "uptime_formatted": f"{int(uptime // 3600)}h {int((uptime % 3600) // 60)}m {int(uptime % 60)}s"
     }
 
 @mcp.tool()
@@ -261,6 +283,22 @@ async def tool_change_background(color: str = "lightblue", tab_id: str = None) -
         tab_id
     )
     return f"Background color change request sent to tab {tab_id}: {color}"
+
+@mcp.tool()
+async def tool_reload(tab_id: str = None) -> str:
+    """Reload the page for a specific tab"""
+    if not tab_id:
+        return "Error: Tab ID is required"
+
+    await manager.send_personal_message(
+        MessageModel(
+            type="reload",
+            args=[],
+            sender_id="server"
+        ).model_dump_json(),
+        tab_id
+    )
+    return f"Reload request sent to tab {tab_id}"
 
 @mcp.tool()
 async def tool_navigate_to(url: str, tab_id: str = None) -> str:
@@ -315,30 +353,6 @@ async def tool_type_text(selector: str, text: str, tab_id: str = None) -> str:
         tab_id
     )
     return f"Type text request sent to tab {tab_id}: {text} into {selector}"
-
-@mcp.tool()
-async def tool_get_element_info(selector: str, tab_id: str = None) -> Dict[str, Any]:
-    """Get detailed information about an element on the page for a specific tab.
-    
-    Args:
-        selector: CSS selector to find the element
-        tab_id: ID of the target tab
-        
-    Returns:
-        Dict containing element information including dimensions, styles, and visibility
-    """
-    if not tab_id:
-        return {"error": "Tab ID is required"}
-    
-    await manager.send_personal_message(
-        MessageModel(
-            type="getElementInfo",
-            args=[selector],
-            sender_id="server"
-        ).model_dump_json(),
-        tab_id
-    )
-    return {"message": f"Getting element info for selector: {selector} in tab {tab_id}"}
 
 @mcp.tool()
 async def tool_wait_for_element(selector: str, timeout: int = 5000, tab_id: str = None) -> Dict[str, Any]:
